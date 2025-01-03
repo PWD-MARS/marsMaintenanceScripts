@@ -18,6 +18,7 @@ library(data.table)
 #Database Stuff
 library(RODBC)
 library(odbc)
+library(DBI)
 library(RPostgres)
 
 #Other stuff
@@ -384,7 +385,7 @@ log_code <- digest(now()) #Unique ID for the log batches
 ```
 
 
-```{r Section 2B - Writing to the tbl_gw_depthdata table, echo = FALSE, eval = nrow(display_newdata) > 0}	
+```{r Section 2B - Writing to the tbl_gw_depthdata table, eval = nrow(display_newdata) > 0}	
   knitr::asis_output(paste0("###The ", nrow(display_newdata), " updated wells contain ", nrow(newdata), " new Groundwater data points"))
 
   kable(display_newdata)
@@ -554,7 +555,7 @@ datagaps <- deployments_df %>%
 
 ```
 
-```{r Section 3B - Writing data gaps, echo=FALSE, eval = all(nrow(datagaps) > 0, !kill)}
+```{r Section 3B - Writing data gaps, eval = all(nrow(datagaps) > 0, !kill)}
   ###Log: Start
   logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                            milestone = 9,

@@ -515,7 +515,7 @@ This script is attempting to update the `admin.tbl_accessdb` and `fieldwork.tbl_
     tryCatch(
   
         expr = {
-          dbWriteTable(marsDBCon, DBI::SQL("tbl_accessdb_temp"), accessdb_newtablestowrite, temporary = TRUE,row.names = FALSE, overwrite = TRUE)
+          dbWriteTable(marsDBCon, RPostgres::Id(table = "tbl_accessdb_temp"), accessdb_newtablestowrite, temporary = TRUE,row.names = FALSE, overwrite = TRUE)
 
           #Use this temp table to update the existing accessdb table
           #Temporary table means R will copy the string "NA" into the table when a value is NA.
