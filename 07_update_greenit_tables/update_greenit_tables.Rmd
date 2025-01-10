@@ -284,7 +284,7 @@ if(newAssets){
 }
 
 if(!kill){
-  new_records <- rbind(new_smps, new_systems, new_projects) %>% nrow
+  new_records <- sum(nrow(new_smps), nrow(new_systems), nrow(new_projects))
   logMessage <- data.frame(date = as.Date(today()),
                      records = new_records,
                      type = "Records",
