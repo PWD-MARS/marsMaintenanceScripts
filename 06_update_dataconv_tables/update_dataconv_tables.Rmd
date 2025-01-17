@@ -553,7 +553,7 @@ if(newAssets){
                            type = "Records",
                            hash = log_code)
   
-      dbWriteTable(mars, DBI::SQL("log.dataconv_writes"), logMessage, append = TRUE, row.names=FALSE)
+      dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_writes_dataconv"), logMessage, append = TRUE, row.names=FALSE)
     }
 
 
