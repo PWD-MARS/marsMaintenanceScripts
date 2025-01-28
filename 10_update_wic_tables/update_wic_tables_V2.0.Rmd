@@ -74,10 +74,19 @@ params:
                             "UID=", Sys.getenv("gis_uid"), ";",
                             "PWD=", Sys.getenv("gis_pwd"), ";")
   
-  errorCodes <- data.frame(code = 0:4,
+  errorCodes <- data.frame(code = 0:13,
   message = c("Execution successful.",
               "Could not connect to Postgres DB. Is Postgres down?",
-              "No baro files found in site folders. Are we connected to Active Directory?",
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
+              NA, #Write error from TryCatch will be used
               NA, #Write error from TryCatch will be used
               NA #Write error from TryCatch will be used
                ), stringsAsFactors=FALSE)
@@ -1116,6 +1125,7 @@ Number of Changed WICs within 100 ft of Systems: `r colorize(nrow(changed_wic_sy
       kill <<- TRUE
       errorCode <<- 12
       errorCodes$message[errorCode+1] <<- e$message #Error object is a list
+      
     })
    }
 
