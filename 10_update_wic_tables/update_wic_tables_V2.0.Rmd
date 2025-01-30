@@ -1107,8 +1107,8 @@ Number of Changed WICs within 100 ft of Systems: `r colorize(nrow(changed_wic_sy
            wic_address = '%s'
        WHERE workorder_id = %s AND system_id = '%s';",
       changed_wic_system$con_phase_lookup_uid[i],
-      changed_wic_system$footprint_dist_ft[i],
-      changed_wic_system$property_dist_ft[i],
+      ifelse(is.na(changed_wic_system$footprint_dist_ft[i]), 'NULL', changed_wic_system$footprint_dist_ft[i]),
+      ifelse(is.na(changed_wic_system$property_dist_ft[i]), 'NULL', changed_wic_system$property_dist_ft[i]),
       changed_wic_system$wic_address[i],
       changed_wic_system$workorder_id[i],
       changed_wic_system$system_id[i]
