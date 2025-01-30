@@ -1267,6 +1267,5 @@ Number of Changed WICs within 100 ft of Systems: `r colorize(nrow(changed_wic_sy
 dbDisconnect(cityworks_con)
 dbDisconnect(mars_con)
 dbDisconnect(gisdata_con)
-dbDisconnect(gisapps_con)
 
 ```
