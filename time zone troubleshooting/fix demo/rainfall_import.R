@@ -72,13 +72,17 @@ library(pwdgsi)
   #Pull rain information
   mars_rain <- dbGetQuery(mars, "select * from tbl_gage_rain")
   
-  rain_newevents <- mars_rain %>% 
+  #Tag rainfall time series with event markers
+  mars_rain_tagged <- mars_rain %>% 
     group_by(gage_uid) %>%
     arrange(dtime_local) %>% 
     mutate(event_id = marsDetectEvents(dtime_local, rainfall_in)) %>%
     #Drop the last "complete" event in case it straddles the month boundary
     #It will get processed the when the next batch of data comes in
     filter(!is.na(event_id), event_id != max(event_id, na.rm = TRUE)) %>%
+    ungroup
+  
+  rain_newevents <- mars_rain_tagged %>%
     group_by(gage_uid, event_id) %>%
     summarize(records = n(),
               eventdatastart_local = first(dtime_local),
@@ -92,8 +96,47 @@ library(pwdgsi)
     rowwise %>%
     mutate(md5hash = digest(paste(gage_uid, records, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in), algo = "md5"))
 
-  #Create temporary escrow table to host our prospective written data
-  dbWriteTable(mars, "tbl_event_escrow", rain_newevents, overwrite = TRUE, temporary = TRUE)
+  #To verify that we have correctly calculated all of the rain, we will sum the 
+    #total rain contained in marked events and the total rain outside of marked events
+    #this "outside" rain either doesn't meet the minimum depth threshold for event detection
+    #or comes at the end of the time series, when we can't yet verify that the rain event won't continue
+    #into the next batch of data
+  mars_rain_verify <- mars_rain %>% 
+    group_by(gage_uid) %>%
+    arrange(dtime_local) %>% 
+    mutate(event_id = marsDetectEvents(dtime_local, rainfall_in)) %>%
+    #For verification, do not purge non-event rain
+    #And instead of dropping the last event, set its ID to NA
+    mutate(event_id = ifelse(event_id == max(event_id, na.rm = TRUE), NA, event_id)) %>%
+    ungroup
+  
+  mars_stats_verify <- mars_rain_verify %>% 
+    mutate(orphan = is.na(event_id)) %>% #orphans are outside of marked rain events
+    group_by(orphan) %>%
+    summarize(depth_in = sum(rainfall_in))
+  
+  #Round to the nearest 100th of an inch, because that's what pwdgsi does
+  round(mars_stats_verify$depth_in[1], 2) == round(sum(rain_newevents$eventdepth_in), 2) #True!
+  
+  #Events are good, send the events to the DB in an escrow table
+  dbWriteTable(mars, "tbl_event_escrow", rain_newevents, temporary = TRUE, overwrite = TRUE)
 
-  mars_events <- dbGetQuery(mars, tbl_event_escro)
+  #Reread and verify a lack of drift
+  mars_events_verify <- dbGetQuery(mars, "select * from tbl_event_escrow")
+  
+  #Compute hashes
+  mars_events_verify <- mars_events_verify %>%
+    rowwise %>%
+    mutate(md5hash_verify = digest(paste(gage_uid, records, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in), algo = "md5")) %>%
+    mutate(hashes_match = md5hash_verify == md5hash)
+  
+  table(mars_events_verify$hashes_match) #All true!
+
+  if(all(mars_events_verify$hashes_match)){
+    dbExecute(mars, "insert into tbl_gage_event (gage_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in)
+              select gage_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in from tbl_event_escrow")
+  }
+
+
+    
   
