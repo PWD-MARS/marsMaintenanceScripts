@@ -137,6 +137,6 @@ library(pwdgsi)
               select gage_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in from tbl_event_escrow")
   }
 
-
+  
     
   
