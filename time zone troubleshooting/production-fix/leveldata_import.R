@@ -54,11 +54,11 @@ mars_deploy <- dbPool(
       print(paste("Fast Redeploy Errors: ", sum(prod_leveldata$fast_redeploy_error)))
     }
     
-    prod_leveldata %>%
+    prod_leveldata <- prod_leveldata %>%
       filter(fast_redeploy_error == FALSE) 
     
     file_leveldata <- prod_leveldata %>%
-      mutate(dtime_local = with_tz(dtime_est, tz = "America/New_York")) %>%
+      mutate(dtime_local = with_tz(dtime_bumped, tz = "America/New_York")) %>%
       select(dtime_local,
              level_ft,
              ow_uid,
@@ -69,7 +69,7 @@ mars_deploy <- dbPool(
   }
   
 #S.2 Groundwater data import
-  
+  '
   prod_gws <- dbGetQuery(mars_test, "select distinct ow_uid from data.tbl_gw_depthdata_raw order by ow_uid asc")
   
   for(i in 1:nrow(prod_gws)){
@@ -80,10 +80,10 @@ mars_deploy <- dbPool(
     
     prod_depthdata <- prod_depthdata %>%
       mutate(secondbump = (second(dtime_est) == 59)) %>% #Calculate whether the seconds place needs to be bumped +1 second
-      mutate(dtime_est = as.POSIXct(ifelse(secondbump, dtime_est + dseconds(1), dtime_est), tz = "EST"))
+      mutate(dtime_bumped = as.POSIXct(ifelse(secondbump, dtime_est + dseconds(1), dtime_est), tz = "EST"))
     
     file_depthdata <- prod_depthdata %>%
-      mutate(dtime_local = with_tz(dtime_est, tz = "America/New_York")) %>%
+      mutate(dtime_local = with_tz(dtime_bumped, tz = "America/New_York")) %>%
       select(dtime_local,
              depth_ft,
              ow_uid) #There is no date_added field in groundwater data
@@ -91,4 +91,4 @@ mars_deploy <- dbPool(
     dbWriteTable(mars_deploy, RPostgres::Id(schema = "data", table = "test_tbl_gw_depthdata_raw"), file_depthdata, append = TRUE, row.names=FALSE)
     
   }
-  
+  '
