@@ -9,7 +9,7 @@ mars <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "monica_seriestest",
+  dbname = "mars_testdeploy",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = NULL)
@@ -62,7 +62,7 @@ dbWriteTable(mars, "tbl_gage_escrow", hhrainfall_gage, temporary = TRUE)
   
   #If every check succeeds, append the escrow data into the main table
   if(all(rows_equal, sums_equal, hashes_equal)){
-    dbExecute(mars, "insert into tbl_gage_rain (gage_uid, dtime_local, rainfall_in)
+    dbExecute(mars, "insert into data.test_tbl_gage_rain (gage_uid, dtime_local, rainfall_in)
               select gage_uid, dtime_local, rainfall_in from tbl_gage_escrow")
   }
 
@@ -133,7 +133,7 @@ library(pwdgsi)
   table(mars_events_verify$hashes_match) #All true!
 
   if(all(mars_events_verify$hashes_match)){
-    dbExecute(mars, "insert into tbl_gage_event (gage_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in)
+    dbExecute(mars, "insert into data.test_tbl_gage_event (gage_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in)
               select gage_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in from tbl_event_escrow")
   }
 
