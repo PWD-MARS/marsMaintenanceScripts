@@ -274,5 +274,4 @@ library(pwdgsi)
   if(all(mars_events_verify$hashes_match)){
     dbExecute(mars, "insert into data.test_tbl_radar_event (radar_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in)
               select radar_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in from tbl_radar_event_escrow")
-  }
-  
+}
