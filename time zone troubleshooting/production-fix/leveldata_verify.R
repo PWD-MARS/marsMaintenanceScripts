@@ -76,3 +76,58 @@ new_leveldata <- new_leveldata %>%
 
 comp <- symdiff(old_leveldata, new_leveldata)
 
+#S.2 Verifying groundwater data
+#Pulling the old data, without coercion
+old_depthdata <- dbGetQuery(mars_test, "select * from data.tbl_gw_depthdata_raw")
+
+#Pulling the new data
+new_depthdata <- dbGetQuery(mars_deploy, "select * from data.test_tbl_gw_depthdata_raw")
+
+#We must...
+#Coerce the new data from America/New_York to EST, undoing the spring-forwards
+#Bump the *old* data up one second when the sensor measured on the :59
+#Strip the fast-redeploy errors from the old data, since they have been stripped in the new data
+
+#And then we can compare the data
+
+#Coerce time zone
+new_depthdata <- mutate(new_depthdata, dtime_est = with_tz(dtime_local, tzone = "EST"))
+
+#Bump the 59th second
+old_depthdata <- old_depthdata %>%
+  mutate(secondbump = (second(dtime_est) == 59)) %>% #Calculate whether the seconds place needs to be bumped +1 second
+  mutate(dtime_bumped = as.POSIXct(ifelse(secondbump, dtime_est + dseconds(1), dtime_est), tz = "EST"))
+
+#Fast redeploy errors are calculated on a per-ow_uid basis, so we need to do a group operation
+old_depthdata <- old_depthdata %>% group_by(ow_uid) %>%
+  mutate(fast_redeploy_error = duplicated(dtime_bumped)) %>%
+  ungroup()
+
+
+#Validation:
+
+#Are the only extra rows in old_depthdata due to unstripped fast redeploy errors?
+nrow(new_depthdata) == (nrow(old_depthdata) - sum(old_depthdata$fast_redeploy_error))
+
+#Strip the FREs
+old_depthdata <- filter(old_depthdata, fast_redeploy_error == FALSE)
+
+#Prepare the time series for comparison
+#The primary keys will not match, so we will remove that field from both frames
+#The fields used to compose the FRE check in the old data will also be removed
+#The dtime_local field will be removed from the new data, since we are only concerned with the pre-spring-forwards data
+#Finally, the dtime_bumped in the old data will be renamed dtime_est so it can be compared to the new data
+
+#We will also sort the data, ordering them by ow_uid, and dtime_est within them
+
+old_depthdata <- old_depthdata %>%
+  select(ow_uid, dtime_est = dtime_bumped, depth_ft) %>%
+  arrange(ow_uid, dtime_est)
+
+new_depthdata <- new_depthdata %>%
+  select(ow_uid, dtime_est, depth_ft) %>%
+  arrange(ow_uid, dtime_est)
+
+comp <- symdiff(old_depthdata, new_depthdata)
+
+
