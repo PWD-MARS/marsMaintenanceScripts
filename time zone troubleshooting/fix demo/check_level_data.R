@@ -53,7 +53,7 @@ level_comp <- function(year) {
                    year)
   fromMars <- dbGetQuery(conn, queryMars)
   fromMars <- fromMars |>
-    mutate(dtime_local = if_else(second(dtime_est) == 59, dtime_est + second(1), dtime_est )) |>
+    mutate(dtime_local = if_else(second(dtime_est) == 59, dtime_est + dseconds(1), dtime_est )) |>
     select(dtime_local, level_ft, ow_uid)
   
 
