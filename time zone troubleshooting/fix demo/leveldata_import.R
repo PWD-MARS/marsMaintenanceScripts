@@ -9,7 +9,7 @@ mars_test <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "mars_testdeploy",
+  dbname = "mars_data",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = "UTC") #To pull in time series data without force-coercing it to local time, we need to set the TZ to UTC here
@@ -18,7 +18,7 @@ mars_deploy <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "mars_testdeploy",
+  dbname = "sandbox_dtime",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = NULL)
@@ -58,8 +58,8 @@ mars_deploy <- dbPool(
       filter(fast_redeploy_error == FALSE) 
     
     file_leveldata <- prod_leveldata %>%
-      mutate(dtime_local = with_tz(dtime_bumped, tz = "America/New_York")) %>%
-      select(dtime_local,
+      mutate(dtime = with_tz(dtime_bumped, tz = "America/New_York")) %>%
+      select(dtime,
              level_ft,
              ow_uid,
              date_added)
@@ -83,8 +83,8 @@ mars_deploy <- dbPool(
       mutate(dtime_bumped = as.POSIXct(ifelse(secondbump, dtime_est + dseconds(1), dtime_est), tz = "EST"))
     
     file_depthdata <- prod_depthdata %>%
-      mutate(dtime_local = with_tz(dtime_bumped, tz = "America/New_York")) %>%
-      select(dtime_local,
+      mutate(dtime = with_tz(dtime_bumped, tz = "America/New_York")) %>%
+      select(dtime,
              depth_ft,
              ow_uid) #There is no date_added field in groundwater data
     

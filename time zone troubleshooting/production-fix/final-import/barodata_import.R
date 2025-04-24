@@ -18,7 +18,7 @@ mars_deploy <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "mars_data",
+  dbname = "sandbox_dtime",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = NULL)
@@ -49,12 +49,11 @@ for(i in 1:nrow(baro_rawfiles)){
     filter(fast_redeploy_error == FALSE) 
   
   file_barodata <- prod_barodata %>%
-    mutate(dtime_local = with_tz(dtime_bumped, tz = "America/New_York")) %>%
-    transmute(dtime_local,
+    mutate(dtime = with_tz(dtime_bumped, tz = "America/New_York")) %>%
+    transmute(dtime,
            baro_psi,
            temp_f,
-           baro_rawfile_uid,
-           dtime_est = dtime_local) #Shim field to transparently serve updated data to end user without updating app first. To be removed when app is updated to target _local field
+           baro_rawfile_uid) 
   
   dbWriteTable(mars_deploy, RPostgres::Id(schema = "data", table = "test_tbl_baro"), file_barodata, append = TRUE, row.names=FALSE)
   
