@@ -1,0 +1,321 @@
+---
+title: "MARS Maintenance Script: Update AccessDB Tables"
+author:
+- Farshad Ebrahimi, amended by Monica Aster
+- Assigning construction status to the deployment records using SRT, CWL data, and CIPIT tables
+date: "`r lubridate::now()`"
+output: html_document
+params:
+  database: "mars14_datav2"
+---
+
+```{r setup, include=FALSE}
+
+#Dplyr stuff
+library(magrittr)
+library(tidyverse)
+
+#Database Stuff
+library(odbc)
+
+#Other stuff
+library(knitr)
+library(digest)
+
+options(stringsAsFactors=FALSE)
+
+errorCodes <- data.frame(code = 0:2,
+  message = c("Execution successful.",
+              "Could not connect to DB. Is Postgres down?",
+              NA #Write error from TryCatch will be used
+              ), stringsAsFactors=FALSE)
+
+kill = FALSE
+success = FALSE
+errorCode = 0
+log_code <- digest(now()) #Unique ID for the log batches
+
+#Not in logical
+`%!in%` <- Negate(`%in%`)
+
+```
+
+
+```{r Section 0A - Preamble and database connections, include=FALSE}
+###Section 0.1: Check parameter validity
+
+###Section 0.2: Connect to the database
+ 	#Connect to MARS database using ODBC channel
+	marsDBCon <- dbConnect(odbc::odbc(), params$database)
+
+  #################################
+  ####Error check - Did we connect?
+  #################################
+  if(!odbc::dbIsValid(marsDBCon))
+  {
+    kill = TRUE
+    errorCode = 1
+  }
+
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), 
+                           milestone = 1,
+                           exit_code = NA,
+                           note = "Checking DB Connection")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_deploymentmetadata"), logMessage, append = TRUE, row.names=FALSE)
+
+```
+
+```{r Break Point 1 - Bad Connection, echo = FALSE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), 
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_deploymentmetadata"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+```{r Section 1 - Gathering construction data, include = FALSE}
+
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), 
+                           milestone = 2,
+                           exit_code = NA,
+                           note = "Gathering construction data")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_deploymentmetadata"), logMessage, append = TRUE, row.names=FALSE)
+
+#get tables
+# current deployments_con_status table
+deployment_con_status <- odbc::dbGetQuery(marsDBCon, paste0("SELECT * FROM fieldwork.tbl_deployment_con_status")) 
+
+#SRT
+srt <- odbc::dbGetQuery(marsDBCon, paste0("SELECT * FROM fieldwork.tbl_srt")) 
+#Deployment
+deployment <- dbGetQuery(marsDBCon, "SELECT *, admin.fun_smp_to_system(smp_id) as system_id FROM fieldwork.viw_deployment_full WHERE smp_id like '%-%-%'") 
+
+external.cipit_project <- dbGetQuery(marsDBCon, "SELECT * FROM external.tbl_cipit_project")
+external.smpbdv <- dbGetQuery(marsDBCon, "SELECT * FROM  external.tbl_smpbdv")
+smp_milestones <- inner_join(external.cipit_project, external.smpbdv, by = "worknumber") %>%
+  select(smp_id, construction_start_date, construction_complete_date, pc_ntp_date, contract_closed_date) %>%
+  distinct()
+
+
+### SRT table has con-status. let's join it with deployments
+### SRT join with Deployment Match by date and system
+
+srt_joined <- deployment %>%
+  left_join(srt, by=c("deployment_dtime_est" = "test_date", "system_id"="system_id" )) %>%
+  filter(!is.na(srt_uid)) %>%
+  select(deployment_uid, con_phase_lookup_uid) %>%
+  distinct
+
+### all long term sites have post-con status
+long_terms <- deployment %>%
+  filter(term == "Long") %>%
+  select(deployment_uid) %>%
+  mutate(con_phase_lookup_uid = 2)
+
+other_deployments <- deployment %>%
+  anti_join(srt_joined, by = "deployment_uid") %>%
+  anti_join(long_terms, by = "deployment_uid") %>%
+  select(smp_id, deployment_uid, deployment_dtime_est) %>%
+  distinct()
+
+
+### run a conditional loop to assign status based on cipit smp milestones
+smp_milestones <- other_deployments %>%
+  inner_join(smp_milestones, by = "smp_id")
+
+smp_milestones['con_phase_lookup_uid'] <- 4
+
+for(i in 1:nrow(smp_milestones)) {
+  
+  if (!is.na(smp_milestones[i, "construction_start_date"]) & !is.na(smp_milestones[i, "construction_complete_date"]) ) {
+    
+    if (smp_milestones[i, "deployment_dtime_est"] >= smp_milestones[i, "construction_start_date"] & smp_milestones[i, "deployment_dtime_est"] <= smp_milestones[i, "construction_complete_date"]  ) {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 1 #Mid-Construction
+      
+    } else if (smp_milestones[i, "deployment_dtime_est"] < smp_milestones[i, "construction_start_date"]) {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 3 #Pre-Construction
+      
+    } else {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 2 #Post-Construction
+      
+    }
+    
+    
+  } else if (!is.na(smp_milestones[i, "pc_ntp_date"]) & !is.na(smp_milestones[i, "construction_complete_date"] )) {
+    
+    if (smp_milestones[i, "deployment_dtime_est"] >= smp_milestones[i, "pc_ntp_date"] & smp_milestones[i, "deployment_dtime_est"] <= smp_milestones[i, "construction_complete_date"]  ) {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 1 #Mid-Construction
+      
+    } else if (smp_milestones[i, "deployment_dtime_est"] < smp_milestones[i, "pc_ntp_date"]) {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 3 #Pre-Construction
+      
+    } else {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 2 #Post-Construction
+      
+    }
+    
+  } else if (!is.na(smp_milestones[i, "construction_start_date"]) & !is.na(smp_milestones[i, "contract_closed_date"])) {
+    
+    if (smp_milestones[i, "deployment_dtime_est"] >= smp_milestones[i, "construction_start_date"] & smp_milestones[i, "deployment_dtime_est"] <= smp_milestones[i, "contract_closed_date"]  ) {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 1 #Mid-Construction
+      
+    } else if (smp_milestones[i, "deployment_dtime_est"] < smp_milestones[i, "construction_start_date"]) {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 3 #Pre-Construction
+      
+    } else {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 2 #Post-Construction
+      
+    }
+    
+    
+    
+  } else if (!is.na(smp_milestones[i, "pc_ntp_date"]) & !is.na(smp_milestones[i, "contract_closed_date"])) {
+    
+    if (smp_milestones[i, "deployment_dtime_est"] >= smp_milestones[i, "pc_ntp_date"] & smp_milestones[i, "deployment_dtime_est"] <= smp_milestones[i, "contract_closed_date"]  ) {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 1 #Mid-Construction
+      
+    } else if (smp_milestones[i, "deployment_dtime_est"] < smp_milestones[i, "pc_ntp_date"]) {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 3 #Pre-Construction
+      
+    } else {
+      
+      smp_milestones[i, "con_phase_lookup_uid"] <- 2 #Post-Construction
+      
+    }
+    
+    
+  } else { 
+    
+    smp_milestones[i, "con_phase_lookup_uid"] <- 4 #Unknown construction status
+    
+    
+  }
+  
+  
+}
+
+
+other_deployment_phase <- smp_milestones %>%
+  select(deployment_uid, con_phase_lookup_uid) %>%
+  distinct()
+
+# all deployment phases
+all_public_deployment_phase <- srt_joined %>%
+  union_all(long_terms) %>%
+  union_all(other_deployment_phase)
+
+other_deployment_phase <- smp_milestones %>%
+  select(deployment_uid, con_phase_lookup_uid) %>%
+  distinct()
+
+# all deployment phases
+all_public_deployment_phase <- srt_joined %>%
+  union_all(long_terms) %>%
+  union_all(other_deployment_phase) %>%
+  anti_join(deployment_con_status, by = "deployment_uid")
+
+if(nrow(all_public_deployment_phase) == 0){
+  success <- TRUE #No new info
+}
+
+```
+
+```{r Section 2 - Write results to DB, include = FALSE, eval = all(!kill, nrow(all_public_deployment_phase) > 0)}
+      ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 3,
+                           exit_code = NA,
+                           note = "Writing metadata")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_deploymentmetadata"), logMessage, append = TRUE, row.names=FALSE)
+
+    tryCatch(
+
+      expr = {
+        dbWriteTable(marsDBCon, 
+          RPostgres::Id(schema = "fieldwork", table = "tbl_deployment_con_status"), 
+          all_public_deployment_phase, 
+          append= TRUE, 
+          row.names = FALSE)
+        success <<- TRUE
+        },
+      error = function(e) {
+        kill <<- TRUE
+        errorCode <<- 2
+        errorCodes$message[errorCode+1] <<- e$message #Error object is a list
+      }
+    )
+  
+if(!kill){
+    #Writing file counts
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = nrow(all_public_deployment_phase),
+                         type = "Records",
+                         hash = log_code)
+
+    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_writes_deploymentmetadata"), logMessage, append = TRUE, row.names=FALSE)
+}
+```
+
+
+
+```{r Break Point 2 - Bad Write, echo = FALSE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), 
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_deploymentmetadata"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+# Script Results: `r ifelse(kill, "FAILURE", ifelse(success, "SUCCESS", "FAILURE"))`
+## Exit Code: `r errorCode`
+## Exit Message: `r errorCodes$message[errorCode+1]`
+
+```{r Section 3 - Close DB connections and render this file, include = FALSE}
+
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_deploymentmetadata"), logMessage, append = TRUE, row.names=FALSE)
+
+	#Close database connections
+	dbDisconnect(marsDBCon)
+```

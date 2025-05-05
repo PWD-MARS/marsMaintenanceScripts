@@ -1,0 +1,1032 @@
+---
+title: "Update Water in Cellar Complaints App"
+author: "Farshad Ebrahimi"
+date: "`r lubridate::now()`"
+output: html_document
+params:
+  database: mars14_datav2
+  write: TRUE
+---
+
+```{r setup, include=FALSE}
+
+  knitr::opts_chunk$set(echo = TRUE)
+  knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+
+  library(DBI)
+  library(RPostgreSQL)
+  library(RPostgres)
+  library(odbc)
+  library(RODBC)
+  library(dplyr)
+  library(tidyr)
+  library(sf)
+  library(shiny)
+  library(lubridate)
+  library(knitr)
+  library(digest)
+
+  MARSDB_con <- dbConnect(odbc(), dsn = params$database)
+  cityworksDB_con <- dbConnect(odbc(),
+                  Driver = "ODBC Driver 17 for SQL Server",
+                  Server = "PWDCWSQLP",
+                  Database = "PWD_Cityworks",
+                  uid = Sys.getenv("cw_uid"),
+                  pwd= Sys.getenv("cw_pwd"))
+  
+  GISDB_con <- dbConnect(odbc(),
+                  Driver = "ODBC Driver 17 for SQL Server",
+                  Server = "PWDGISSQL",
+                  Database = "GISDATA",
+                  uid = Sys.getenv("gis_uid"),
+                  pwd= Sys.getenv("gis_pwd"))
+  
+  gis_apps_con <- paste0("MSSQL:server=PWDGISSQL;",
+                            "database=GIS_APPS;",
+                            "UID=", Sys.getenv("gis_uid"), ";",
+                            "PWD=", Sys.getenv("gis_pwd"), ";")
+
+  log_code <- digest(now()) #Unique ID for the log batches
+   
+  output_25 <- data.frame(matrix(NA, 0, 2))
+  output_50 <- data.frame(matrix(NA, 0, 2))
+  output_100 <- data.frame(matrix(NA, 0, 2))
+  fieldwork.tbl_wic_smps <- data.frame(matrix(NA, 0, 2))
+  smp_milestones <- data.frame(matrix(NA, 0, 4))
+  names(smp_milestones) <- c("workorder_id", "smp_id",  "phase", "buffer_ft")
+  
+  wic_parcel_attach <- data.frame(matrix(NA, 0, 4))
+  wic_parcels <- NULL
+  
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 1,
+                           exit_code = NA,
+                           note = "Checking DB Connections")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+      
+  
+```
+
+```{r Section 1 - Checking for new WIC complaints, new WIC comments, and any other changes, include=FALSE}
+    
+# gather wic orders and comments from citywork 
+
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 2,
+                           exit_code = NA,
+                           note = "Gathering WIC records")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+
+   cityworks_workorders <- dbGetQuery(cityworksDB_con, "SELECT wo.WORKORDERID, wo.INITIATEDATE AS WO_INITIATEDATE, wo.LOCATION, wo.WOXCOORDINATE, wo.WOYCOORDINATE, woe.ENTITYUID AS FACILITYID 
+FROM Azteca.WORKORDER wo INNER JOIN Azteca.ACTIVITYLINK rwo ON wo.WORKORDERID = rwo.DESTACTIVITYSTRINGID and SOURCEACTIVITYTYPE = 'servicerequest' and DESTACTIVITYTYPE = 'workorder'
+LEFT JOIN Azteca.REQUEST r ON rwo.SOURCEACTIVITYID = r.REQUESTID 
+LEFT JOIN Azteca.WORKORDERENTITY woe ON wo.WORKORDERID = woe.WORKORDERID 
+WHERE ((wo.DESCRIPTION = 'A - PROPERTY INVESTIGATION' AND r.DESCRIPTION = 'WATER IN CELLAR') OR
+(wo.DESCRIPTION = 'A - LEAK INVESTIGATION' AND r.DESCRIPTION = 'WATER IN CELLAR'))
+    ")
+   cityworks_cm <- dbGetQuery(cityworksDB_con, "SELECT WORKORDERID, COMMENTS from Azteca.WORKORDERCOMMENT " )
+   
+# gather current wic orders and comments from MARS_Data
+   
+   wic_workorders <- dbGetQuery(MARSDB_con, "SELECT * FROM fieldwork.tbl_wic_workorders ")
+   wic_comments <- dbGetQuery(MARSDB_con, "SELECT * FROM fieldwork.tbl_wic_comments ")
+   
+# change the data column format; for some reason anti_join cannot match the dates in POSIXct
+   
+   wic_workorders$wo_initiatedate <- as.Date(wic_workorders$wo_initiatedate)
+   cityworks_workorders$WO_INITIATEDATE <- as.Date(cityworks_workorders$WO_INITIATEDATE)
+   
+   cityworks_workorders$WORKORDERID <- as.numeric(cityworks_workorders$WORKORDERID)
+   cityworks_cm$WORKORDERID <- as.numeric(cityworks_cm$WORKORDERID)
+  
+   
+# make names consistent    
+
+   names(cityworks_workorders) <- c("workorder_id","wo_initiatedate","location","wo_xcoordinate","wo_ycoordinate","facility_id")
+   names (cityworks_cm) <- c("workorder_id","comments")
+   
+   
+   mutate(cityworks_workorders, dupe = duplicated(workorder_id)) -> test
+   dupes <- test$workorder_id[test$dupe == TRUE]
+   filter(test, workorder_id %in% dupes) -> dup_table
+   distinct_wo <- dup_table %>% select(-dupe)
+   distinct_wo$facility_id <- NA
+   distinct_wo$facility_id <- as.character(distinct_wo$facility_id)
+   distinct_wo <- distinct_wo %>% distinct()
+   cityworks_workorders <- cityworks_workorders %>% anti_join(distinct_wo, by= "workorder_id")
+   cityworks_workorders <- bind_rows(cityworks_workorders, distinct_wo)
+   
+# find the new wic complaint and changed ones in cityworks DB
+   
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 3,
+                           exit_code = NA,
+                           note = "Check for Updates")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+   
+   new_wic <- cityworks_workorders %>% filter(!(workorder_id %in% wic_workorders$workorder_id))
+   cityworks_workorders_old <- anti_join(cityworks_workorders, new_wic, by = "workorder_id")
+   changed_wic_cityworks <- cityworks_workorders_old  %>%
+     anti_join(wic_workorders, by = c("workorder_id","wo_initiatedate","location","wo_xcoordinate","wo_ycoordinate","facility_id")) 
+   wo_noparcels <- bind_rows(changed_wic_cityworks, new_wic)
+
+   
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 4,
+                           exit_code = NA,
+                           note = "Write new WICs to MARS")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+   
+success_wo <- FALSE
+     
+# Append the new WIC to wic_workorders
+   
+if( nrow(new_wic) > 0 & params$write == TRUE ){
+  
+  success_wo <- dbWriteTable (MARSDB_con, SQL("fieldwork.tbl_wic_workorders"),new_wic,append= TRUE, row.names = FALSE)
+     
+}
+  
+if(success_wo == TRUE){
+    #Writing file counts
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = nrow(new_wic),
+                         type = "WICs",
+                         hash = log_code)
+
+    dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_writes_wic"), logMessage, append = TRUE, row.names=FALSE)
+}
+
+
+# Update the workorders in wic_workorders that have been changed in cityworks DB 
+   
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 5,
+                           exit_code = NA,
+                           note = "Write Updates to MARS")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+
+success_update <- FALSE  
+
+   if(nrow(changed_wic_cityworks) > 0 & params$write == TRUE){
+     
+     sql_string <- "UPDATE fieldwork.tbl_wic_workorders SET wo_initiatedate = '%s', location = '%s',  wo_xcoordinate = %s,wo_ycoordinate= %s,facility_id = '%s' WHERE workorder_id = %s;"
+     
+     
+     success_update <- dbSendStatement(MARSDB_con, paste(sprintf(sql_string, changed_wic_cityworks$wo_initiatedate, changed_wic_cityworks$location,changed_wic_cityworks$wo_xcoordinate,changed_wic_cityworks$wo_ycoordinate,changed_wic_cityworks$facility_id,changed_wic_cityworks$workorder_id), collapse=""))
+     
+   }
+  
+if(typeof(success_update) != 'logical'){ #The dbSendStatement returns an s4 object
+    #Writing file counts
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = nrow(changed_wic_cityworks),
+                         type = "Updated WICs",
+                         hash = log_code)
+
+    dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_writes_wic"), logMessage, append = TRUE, row.names=FALSE)
+}
+   
+# update comments and add new comments to the new workorders
+   
+   workorders_unique <- select(cityworks_workorders,workorder_id) %>% unique()
+   cw_wic_comments <- inner_join(workorders_unique, cityworks_cm, by = "workorder_id")
+   cw_wic_comments<- cw_wic_comments %>%
+       group_by(workorder_id) %>%
+       summarise(comments = toString(sort(unique(comments)))) 
+   new_wo_comments <- inner_join(new_wic, cw_wic_comments, by = "workorder_id") %>% select(workorder_id, comments)
+   old_wo_comments <-anti_join(cw_wic_comments, new_wo_comments, by = "workorder_id")
+   old_wo_comments <-as.data.frame(old_wo_comments)
+   
+   old_wo_comments$comments <- gsub("[\r\n]", "", old_wo_comments$comments)
+   wic_comments$comments <- gsub("[\r\n]", "", wic_comments$comments)
+
+   changed_comments <- anti_join(old_wo_comments, wic_comments, by = c("comments"))
+   changed_comments_cityworks <- changed_comments %>% select(workorder_id) %>% inner_join(cw_wic_comments, by = "workorder_id")
+   
+    ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 6,
+                           exit_code = NA,
+                           note = "Write Comments to MARS")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+
+  success_comments <- FALSE   
+   
+    if( nrow(new_wo_comments) > 0 & params$write == TRUE ){
+      
+  success_comments <- dbWriteTable (MARSDB_con, SQL("fieldwork.tbl_wic_comments"),new_wo_comments,append= TRUE, row.names = FALSE)
+      
+    }
+
+if(success_comments == TRUE){
+    #Writing file counts
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = nrow(new_wo_comments),
+                         type = "Comments",
+                         hash = log_code)
+
+    dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_writes_wic"), logMessage, append = TRUE, row.names=FALSE)
+}
+  
+success_upcomments <- FALSE
+   
+   if(nrow(changed_comments_cityworks) > 0 & params$write == TRUE){
+    
+      sql_string <- "delete from fieldwork.tbl_wic_comments WHERE workorder_id = %s;"
+          dbSendStatement(MARSDB_con, paste(sprintf(sql_string, changed_comments_cityworks$workorder_id), collapse=""))
+          success_upcomments <- dbWriteTable (MARSDB_con , SQL("fieldwork.tbl_wic_comments"),changed_comments_cityworks,append= TRUE, row.names = FALSE)
+     
+   }
+
+if(success_upcomments == TRUE){
+    #Writing file counts
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = nrow(changed_comments_cityworks),
+                         type = "Updated Comments",
+                         hash = log_code)
+
+    dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_writes_wic"), logMessage, append = TRUE, row.names=FALSE)
+}
+   
+```
+
+The cityworks database has been examined for new water-in-cellar work orders, and also any changes that have been made to the existing work orders. There are `r nrow(new_wic)` new work orders and `r nrow(changed_wic_cityworks)` work orders whose fields have changed. There are also `r nrow(changed_comments_cityworks)` work orders whose comments have been modified.
+
+```{r Section 2- displaying tables of new work orders and changed work orders ,echo=FALSE, results='asis'}
+
+  if (nrow(new_wic) > 0) {
+
+    kable(new_wic, caption = "New work orders in cityworks database")
+    
+  }
+
+  if (nrow(changed_wic_cityworks) > 0) {
+
+    kable(changed_wic_cityworks, caption = "Modified work orders in cityworks database")
+    
+  }
+
+```
+
+```{r Section 3- attach parcels to new and changed workorder based on facility id ,include=FALSE, eval= nrow(wo_noparcels) > 0}
+    
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 7,
+                           exit_code = NA,
+                           note = "Attaching parcels")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+
+     Parcels_Frame <- dbGetQuery(GISDB_con, "SELECT * from GISDATA.GISAD.PWD_PARCELS")
+     Parcels_facility_id <- select(Parcels_Frame, FACILITYID)
+     Parcels_Address_id <- select(Parcels_Frame, ADDRESS, FACILITYID)
+     PARCELS_SPATIAL <- st_read(dsn = "\\\\pwdoows\\oows\\Watershed Sciences\\GSI Monitoring\\09 GIS Data\\PWD_PARCELS ", layer = "PWD_PARCELS")
+     st_crs(PARCELS_SPATIAL) = 2272
+     wo_noparcels$facility_id<-gsub("\\{(.*)\\}","\\1",as.character(wo_noparcels$facility_id))
+
+    ##Matching by facility ID
+     
+    # Inner join the wo_noparcels and Parcels_Addressid ON facility ID
+      WOID_FACID_Match <- inner_join (wo_noparcels, Parcels_Address_id  , by = c("facility_id"="FACILITYID"))
+    # Get FIRST OUTPUT BASED ON FACILITYID MATCH STORED IN WOID_FAC_UNIQ_REL
+      WOID_FAC_UNIQ_REL <- select(WOID_FACID_Match, workorder_id, location, facility_id)
+    # Remove the rows that we matched based on the facilityid from the cityworks table 
+      wo_noparcels <- anti_join(wo_noparcels, WOID_FACID_Match, by = "workorder_id")
+    # Remove the rows that were matched from the Parcels_Address_id table
+      Parcels_Address_id <-anti_join(Parcels_Address_id, WOID_FACID_Match, by = c("FACILITYID"="facility_id") )
+    # drop the facility id from workorderid as these ids are not meaningful 
+      WORKORDER_ID_Location<-  select(wo_noparcels, -facility_id)
+      
+      wic_parcel_attach <- WOID_FAC_UNIQ_REL
+      
+```
+
+```{r Section 4- attach parcels to new and changed workorder based on address ,include=FALSE, eval= nrow(wo_noparcels) > 0}
+   
+    ##Matching by address
+      
+    # Inner join the  WORKORDER_ID_Location with Parcels_Address_id to extract the facility id
+      WO_ID_ADDRESS_MATCH <- inner_join(WORKORDER_ID_Location,Parcels_Address_id,by = c("location" = "ADDRESS"))
+    # GET SECOND OUTPUT BASED ON FACILITYID MATCH STORED IN WOID_FAC_UNIQ_Add_REL )  
+      WOID_FAC_UNIQ_Add_REL <- WO_ID_ADDRESS_MATCH  %>% select(workorder_id, location, facility_id = FACILITYID)  
+    # Remove the rows that we were matched based on the address from the cityworkstable 
+      wo_noparcels <- anti_join(wo_noparcels, WO_ID_ADDRESS_MATCH, by = "workorder_id")
+    # Remove the rows that were matched from the Parcels_Address_id table
+      Parcels_Address_id <-anti_join(Parcels_Address_id, WO_ID_ADDRESS_MATCH, by = "FACILITYID" ) 
+      
+    # stick previous results together
+      wic_parcel_attach <- union_all (wic_parcel_attach, WOID_FAC_UNIQ_Add_REL)
+
+```
+
+```{r Section 5- attach parcels to new and changed workorder based on XY coordinate ,include=FALSE, eval= nrow(wo_noparcels) > 0}
+
+    
+   ##Matching by XY coordinates
+      
+    # Build the spatial object from the XY coordinates in Cityworks
+     
+         
+        xy_coor <-  c(wo_noparcels[,"wo_xcoordinate"],wo_noparcels[,"wo_ycoordinate"])
+    
+        mat_coor <- matrix(data = xy_coor, ncol = 2) %>% na.omit
+      
+        WO_SPATIAL <- mat_coor |> 
+           as.matrix() |> 
+           st_multipoint() |> 
+           st_sfc() |> 
+           st_cast('POINT')
+         
+        st_crs(WO_SPATIAL) <- 2272
+         
+      # Intersect the Parcel polygons and the points
+         
+         WO_PARC_INTERSECT <- st_intersects(WO_SPATIAL, PARCELS_SPATIAL )
+         
+    ## Section 5: Matching WICs to parcels by geoprocessing
+     
+      # Get the index of intersecting XY coordinates and Parcel polygons
+         
+         Index_WO <- NULL
+         
+         Index_Parcel <- NULL
+         
+          for(i in 1:length(WO_PARC_INTERSECT)) {
+           
+              temp <- WO_PARC_INTERSECT[[i]]
+           
+                if (length(temp) > 0) {
+    
+                WO <- rep(i, length(temp))
+                
+                Parcel <- temp
+    
+                Index_WO <- c(Index_WO, WO )
+                
+                Index_Parcel <- c(Index_Parcel, Parcel ) 
+                
+                }
+                                                 
+           }
+         
+         
+      # attach the XY coordinate to the Parcel frame to create COORD_MATCHED_TABLE
+         
+         mat_coor <- data.frame (mat_coor)
+         
+         names(mat_coor) <- c("wo_xcoordinate","wo_ycoordinate")
+         
+         WO_MATCHED_XY <- mat_coor[Index_WO, ]
+         
+         Parcel_Matched_Polyg <- PARCELS_SPATIAL[Index_Parcel, ]
+         
+         COORD_MATCHED_TABLE <- cbind(Parcel_Matched_Polyg,WO_MATCHED_XY)
+     
+    # Get workorderid, address, and facilityid (Third output is stored in WOID_Based_XY )
+       
+       WOID_Based_XY<- wo_noparcels %>% select(workorder_id, wo_initiatedate, location, wo_xcoordinate, wo_ycoordinate) %>% inner_join(COORD_MATCHED_TABLE, by = c("wo_xcoordinate" = "wo_xcoordinate", "wo_ycoordinate" = "wo_ycoordinate")) %>% select(workorder_id, location = ADDRESS, facility_id = FACILITYID) 
+       
+       wic_parcel_attach <- union_all (wic_parcel_attach, WOID_Based_XY)
+
+```
+
+```{r Section 6- write to DB ,include=FALSE, eval = nrow(wic_parcel_attach)>0}
+    ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 8,
+                           exit_code = NA,
+                           note = "Write parcels to MARS")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+
+       
+    # union the matching tables-Final output is in FACID_ADD_XY
+     
+       wic_parcels <- unique(wic_parcel_attach)
+       
+    # Add the workorder date 
+       
+       WORKORDER_ID <- bind_rows(changed_wic_cityworks, new_wic)
+       WORK_DATE <- WORKORDER_ID %>% select(workorder_id, wo_initiatedate)
+       wic_parcels <- inner_join(wic_parcels, WORK_DATE, by = "workorder_id") %>% select(workorder_id, location, facility_id, wo_initiatedate)
+       wic_parcels <- inner_join(wic_parcels, Parcels_Frame, by=c("facility_id"="FACILITYID")) %>% select(workorder_id, ADDRESS, facility_id, wo_initiatedate)
+       names(wic_parcels) <- c("workorder_id","location","facility_id", "wo_initiatedate")
+       
+
+```
+
+The new and modified work orders (total = `r nrow(bind_rows(changed_wic_cityworks, new_wic))` ) were searched in GIS database by their facility id, location, and XY coordinate. This has resulted in `r nrow(wic_parcel_attach)` parcel attachment.
+
+```{r Section 7- displaying tables of parcels attached to the new and changed work orders and write to DB ,echo=FALSE, results='asis'}
+
+     if ( !is.null(wic_parcels)) {
+    
+        kable(wic_parcels, caption = "Parcel attachment for new/changed workorders")
+    
+      }
+
+success_parcels <- FALSE
+
+      if (!is.null(wic_parcels) & params$write == TRUE){
+        
+        sql_string <- "delete from fieldwork.tbl_wic_parcels WHERE workorder_id = %s;"
+        dbSendStatement(MARSDB_con, paste(sprintf(sql_string, wic_parcels$workorder_id), collapse=""))
+    
+        success_parcels <- dbWriteTable (MARSDB_con, SQL("fieldwork.tbl_wic_parcels"),wic_parcels,append= TRUE, row.names = FALSE)
+
+      }
+
+if(success_parcels == TRUE){
+    #Writing file counts
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = nrow(wic_parcels),
+                         type = "New/Updated Parcels",
+                         hash = log_code)
+
+    dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_writes_wic"), logMessage, append = TRUE, row.names=FALSE)
+}
+
+```
+
+```{r Section 8- SMP intersect, include=FALSE, eval= !is.null(wic_parcels) }
+
+    ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 9,
+                           exit_code = NA,
+                           note = "SMP Intersections")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+
+      basin <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWIBASIN", quiet = TRUE)) 
+      blueroof <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWIBLUEROOF", quiet = TRUE)) 
+      bumpout <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWIBUMPOUT", quiet = TRUE)) 
+      cistern <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWICISTERN", quiet = TRUE)) 
+      
+  # something wrong with drainagewell 
+      
+      #drainagewell <- suppressWarnings(st_read(gis_apps_con, "GISAD.gswiDrainageWell", quiet = TRUE))
+      
+      greenroof <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWIGREENROOF", quiet = TRUE))
+      permeablepavement <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWIPERMEABLEPAVEMENT", quiet = TRUE))
+      planter <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWIPLANTER", quiet = TRUE))
+      raingarden <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWIRAINGARDEN", quiet = TRUE))
+      swale <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWISWALE", quiet = TRUE))
+      treetrench <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWITREETRENCH", quiet = TRUE))
+      trench <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWITRENCH", quiet = TRUE)) 
+      wetland <- suppressWarnings(st_read(gis_apps_con, "gisad.GSWIWETLAND", quiet = TRUE))
+      st_crs ( basin) <- 2272 
+      st_crs (blueroof) <- 2272
+      st_crs(bumpout) <- 2272
+      st_crs(cistern) <- 2272
+        
+  # something wrong with drainagewell 
+      
+      #st_crs (drainagewell) <- 2272
+      st_crs (greenroof) <- 2272
+      st_crs (permeablepavement) <- 2272
+      st_crs (planter) <- 2272
+      st_crs(raingarden) <- 2272
+      st_crs (swale) <- 2272
+      st_crs(treetrench) <- 2272
+      st_crs(trench) <- 2272
+      st_crs (wetland) <- 2272
+  
+      
+  # filter to get WIC associated polygons and delete the layer
+      
+      WIC_ID_TABLE <- wic_parcels
+      PARCELS_SPATIAL$FACILITYID<-gsub("\\{(.*)\\}","\\1",as.character(PARCELS_SPATIAL$FACILITYID))
+      Parcels_WIC_Filterd <- inner_join(PARCELS_SPATIAL, WIC_ID_TABLE, by = c("FACILITYID"="facility_id") )
+      Parcels_filtered_df <-as.data.frame(Parcels_WIC_Filterd)
+      Parcels_filtered_df$wo_initiatedate <- as.Date(Parcels_filtered_df$wo_initiatedate)
+      
+  # Drop columns except the SMP_ID and Merge all SMPs
+      
+      basin <- basin %>% select(SMP_ID)
+      blueroof<- blueroof %>% select(SMP_ID)
+      bumpout <- bumpout %>% select(SMP_ID)
+      cistern <- cistern %>% select(SMP_ID)
+      #drainagewell <- drainagewell %>% select(SMP_ID)
+      greenroof<- greenroof %>% select(SMP_ID)
+      permeablepavement <- permeablepavement %>% select(SMP_ID)
+      planter<- planter %>% select(SMP_ID)
+      raingarden <- raingarden %>% select(SMP_ID)
+      swale <- swale %>% select(SMP_ID)
+      treetrench <- treetrench %>% select(SMP_ID)
+      trench<- trench %>% select(SMP_ID)
+      wetland <- wetland %>% select(SMP_ID)
+
+  # something wrong with drainagewell 
+      
+     # SMP <- bind_rows(basin, blueroof, bumpout, cistern, drainagewell, greenroof, permeablepavement, planter, raingarden, swale, treetrench, trench, wetland)
+      SMP <- bind_rows(basin, blueroof, bumpout, cistern, greenroof, permeablepavement, planter, raingarden, swale, treetrench, trench, wetland)
+      
+  # filter SMPs to non-private ones
+      Boolean <- grepl ("\\d+-\\d+-\\d+", SMP[["SMP_ID"]])
+      SMPID_IND <- which(as.numeric(Boolean)!=0, T)
+      SMP <- SMP[SMPID_IND, ]
+      
+## Section 2: Create buffers (25, 50, and 100 ft) around SMPs and intersect them with the WIC Parcels
+      
+  #set 25, 50, 100 ft buffer around the SMPs
+      
+      SMP_buffer_25 <- st_buffer(SMP, 25)
+      SMP_buffer_50 <- st_buffer(SMP, 50)
+      SMP_buffer_100 <- st_buffer(SMP, 100)
+    
+  #INTERSECT the WIC with buffered SMPs
+      
+      SMP_inters_25 <- st_intersects(SMP_buffer_25, Parcels_WIC_Filterd)
+      SMP_inters_50 <- st_intersects(SMP_buffer_50, Parcels_WIC_Filterd)
+      SMP_inters_100 <- st_intersects(SMP_buffer_100, Parcels_WIC_Filterd)
+      
+## Section 3: Extract the intersecting SMP-PARCEL and populate the result dataframe 
+      
+  # create a conditional loop, that loops through each element of the list column of intersect (sparse matrix) , gets the indexes of the 
+  # WIC_parcels, and populates a data frame, consisting the SMP_ID, FACILITYID of the wic -parcel, and the size of buffer
+      
+   # buffer 25 ft
+
+      Inters_Obj <- SMP_inters_25
+      
+      GSI <- SMP
+      
+      Buffer <- 25
+      
+      output <- NULL
+      
+      df <- NULL
+      
+      for(i in 1:length(Inters_Obj)) {
+        
+      temp <- Inters_Obj[[i]]
+       
+        if (length(temp) > 0) {
+          
+            
+        FACI_ID <- Parcels_WIC_Filterd[temp, "FACILITYID"] 
+        
+        WO_ID <- Parcels_WIC_Filterd[temp, "workorder_id"]
+        
+        WO_Date <- Parcels_WIC_Filterd[temp, "wo_initiatedate"]
+                 
+        SMPID <- GSI [i,"SMP_ID"]
+        
+        FACI_ID <- FACI_ID %>% st_set_geometry(NULL)
+        
+        WO_ID <- WO_ID %>% st_set_geometry(NULL)
+        
+        WO_Date <- WO_Date %>% st_set_geometry(NULL)
+        
+        SMPID <- SMPID %>% st_set_geometry(NULL)
+        
+        
+                 
+        df <- data.frame(SMPID, FACI_ID, Buffer, WO_ID, WO_Date)
+                 
+        output <- rbind(output, df ) 
+        
+        }
+      
+      output_25 <- output 
+      
+      } 
+      
+      
+  # buffer 50 ft 
+      
+      Inters_Obj <- SMP_inters_50
+      
+      GSI <- SMP
+      
+      Buffer <- 50
+      
+      output <- NULL
+      
+      df <- NULL
+      
+      for(i in 1:length(Inters_Obj)) {
+        
+        temp <- Inters_Obj[[i]]
+        
+        if (length(temp) > 0) {
+          
+          
+          FACI_ID <- Parcels_WIC_Filterd[temp, "FACILITYID"] 
+          
+          WO_ID <- Parcels_WIC_Filterd[temp, "workorder_id"]
+          
+          WO_Date <- Parcels_WIC_Filterd[temp, "wo_initiatedate"]
+          
+          SMPID <- GSI [i,"SMP_ID"]
+          
+          FACI_ID <- FACI_ID %>% st_set_geometry(NULL)
+          
+          WO_ID <- WO_ID %>% st_set_geometry(NULL)
+          
+          WO_Date <- WO_Date %>% st_set_geometry(NULL)
+          
+          SMPID <- SMPID %>% st_set_geometry(NULL)
+          
+          
+          
+          df <- data.frame(SMPID, FACI_ID, Buffer, WO_ID, WO_Date)
+          
+          output <- rbind(output, df ) 
+          
+        }
+        
+        output_50 <- output 
+        
+      } 
+      
+  # buffer 100 ft 
+      
+      Inters_Obj <- SMP_inters_100
+      
+      GSI <- SMP
+      
+      Buffer <- 100
+      
+      output <- NULL
+      
+      df <- NULL
+      
+      for(i in 1:length(Inters_Obj)) {
+        
+        temp <- Inters_Obj[[i]]
+        
+        if (length(temp) > 0) {
+          
+          
+          FACI_ID <- Parcels_WIC_Filterd[temp, "FACILITYID"] 
+          
+          WO_ID <- Parcels_WIC_Filterd[temp, "workorder_id"]
+          
+          WO_Date <- Parcels_WIC_Filterd[temp, "wo_initiatedate"]
+          
+          SMPID <- GSI [i,"SMP_ID"]
+          
+          FACI_ID <- FACI_ID %>% st_set_geometry(NULL)
+          
+          WO_ID <- WO_ID %>% st_set_geometry(NULL)
+          
+          WO_Date <- WO_Date %>% st_set_geometry(NULL)
+          
+          SMPID <- SMPID %>% st_set_geometry(NULL)
+          
+          
+          
+          df <- data.frame(SMPID, FACI_ID, Buffer, WO_ID, WO_Date)
+          
+          output <- rbind(output, df ) 
+          
+        }
+        
+        output_100 <- output 
+        
+      } 
+      
+## Section 4: Final processing of the result data frame nad writing to DB 
+  #stick them together, name them, add the system id
+###Taylor says: Filter to complete cases (ie, no NAs or gaps in data) and write to DB
+      
+      Result <- bind_rows(output_25, output_50, output_100) 
+      if (length(Result) > 0) {
+        rownames(Result) <- NULL
+        names(Result) <- c("smp_id", "wic_facility_id","buffer_ft", "workorder_id","wo_initiatedate")
+        Result <- Result %>% na.omit
+        Result['system_id'] <- gsub('-\\d+$','',Result$smp_id )
+  
+  ## section 5: categorizing the SMPs to pre, during, or post construction
+        wic_conphase <- data.frame(wic_uid = 1:4, phase = c("pre-construction", "during construction", "post-construction", "unknown"))
+        external.cipit_project <- dbGetQuery(MARSDB_con, "SELECT * FROM external.tbl_cipit_project")
+        external.smpbdv <- dbGetQuery(MARSDB_con, "SELECT * FROM  external.tbl_smpbdv")
+        worknumber <- inner_join(Result,external.smpbdv, by = "smp_id" )  %>% select( smp_id, wic_facility_id,buffer_ft, workorder_id,wo_initiatedate, worknumber)
+        smp_milestones <- inner_join(external.cipit_project, worknumber, by = "worknumber")  %>% select (smp_id, wic_facility_id,buffer_ft, workorder_id,wo_initiatedate, construction_start_date, pc_ntp_date, construction_complete_date, contract_closed_date) %>% unique()
+        
+    #setting the lookup_id's default in smpmilestone to 4
+      
+        smp_milestones['phase_lookup_uid'] <- 4
+        for(i in 1:nrow(smp_milestones)) {
+          if (!is.na(smp_milestones[i, "construction_start_date"]) && !is.na(smp_milestones[i, "construction_complete_date"]) ) {
+              if (smp_milestones[i, "wo_initiatedate"] >= smp_milestones[i, "construction_start_date"] && smp_milestones[i, "wo_initiatedate"] <= smp_milestones[i, "construction_complete_date"]  ) {
+                smp_milestones[i, "phase_lookup_uid"] <- 2
+              } else if (smp_milestones[i, "wo_initiatedate"] < smp_milestones[i, "construction_start_date"]) {
+                smp_milestones[i, "phase_lookup_uid"] <- 1
+              } else {
+                smp_milestones[i, "phase_lookup_uid"] <- 3
+            }
+          } else if (!is.na(smp_milestones[i, "pc_ntp_date"]) && !is.na(smp_milestones[i, "construction_complete_date"] )) {
+              if (smp_milestones[i, "wo_initiatedate"] >= smp_milestones[i, "pc_ntp_date"] && smp_milestones[i, "wo_initiatedate"] <= smp_milestones[i, "construction_complete_date"]  ) {
+                smp_milestones[i, "phase_lookup_uid"] <- 2
+              } else if (smp_milestones[i, "wo_initiatedate"] < smp_milestones[i, "pc_ntp_date"]) {
+                smp_milestones[i, "phase_lookup_uid"] <- 1
+              } else {
+                smp_milestones[i, "phase_lookup_uid"] <- 3
+            }
+            
+          } else if (!is.na(smp_milestones[i, "construction_start_date"]) && !is.na(smp_milestones[i, "contract_closed_date"])) {
+              if (smp_milestones[i, "wo_initiatedate"] >= smp_milestones[i, "construction_start_date"] && smp_milestones[i, "wo_initiatedate"] <= smp_milestones[i, "contract_closed_date"]  ) {
+                smp_milestones[i, "phase_lookup_uid"] <- 2
+              } else if (smp_milestones[i, "wo_initiatedate"] < smp_milestones[i, "construction_start_date"]) {
+                smp_milestones[i, "phase_lookup_uid"] <- 1
+              } else {
+                smp_milestones[i, "phase_lookup_uid"] <- 3
+            }
+          } else if (!is.na(smp_milestones[i, "pc_ntp_date"]) && !is.na(smp_milestones[i, "contract_closed_date"])) {
+              if (smp_milestones[i, "wo_initiatedate"] >= smp_milestones[i, "pc_ntp_date"] && smp_milestones[i, "wo_initiatedate"] <= smp_milestones[i, "contract_closed_date"]  ) {
+                smp_milestones[i, "phase_lookup_uid"] <- 2
+              } else if (smp_milestones[i, "wo_initiatedate"] < smp_milestones[i, "pc_ntp_date"]) {
+                smp_milestones[i, "phase_lookup_uid"] <- 1
+              } else {
+                smp_milestones[i, "phase_lookup_uid"] <- 3
+              }
+            
+          } else { 
+                smp_milestones[i, "phase_lookup_uid"] <- 4
+            }
+        }
+        
+        fieldwork.tbl_wic_smps <- smp_milestones %>% select(workorder_id,smp_id, wic_facility_id, buffer_ft, phase_lookup_uid)
+        fieldwork.tbl_wic_smps['system_id'] <- gsub('-\\d+$','',fieldwork.tbl_wic_smps$smp_id ) 
+      
+        if (nrow(fieldwork.tbl_wic_smps) > 0 & params$write == TRUE){
+          
+          sql_string <- "delete from fieldwork.tbl_wic_smps WHERE workorder_id = %s;"
+          dbSendStatement(MARSDB_con, paste(sprintf(sql_string, fieldwork.tbl_wic_smps$workorder_id), collapse=""))
+          dbWriteTable (MARSDB_con , SQL("fieldwork.tbl_wic_smps"),fieldwork.tbl_wic_smps,append= TRUE, row.names = FALSE)
+        }
+        
+        wic_conphase <- data.frame(wic_uid = 1:4, phase = c("Pre-construction", "During-construction", "Post-construction", "unknown"))
+        smp_milestones <- inner_join(smp_milestones, wic_conphase, by=c("phase_lookup_uid"="wic_uid"))
+      
+      }
+      
+
+   
+```
+
+Public SMPs were intersected with parcels associated with new/changed WIC work orders within 25, 50, and 100 ft of distance from them. This resulted in `r nrow( smp_milestones %>% filter(phase=="Pre-construction"))` SMP attachment in Pre-construction phase, `r nrow( smp_milestones %>% filter(phase=="During-construction"))` SMP attachment during-construction phase, `r nrow( smp_milestones %>% filter(phase=="Post-construction"))` SMP attachment in Post-construction phase, and `r nrow( smp_milestones %>% filter(phase=="unknown"))` SMP attachment with unknown construction phase.
+
+```{r section 9- SMP map data update, include = FALSE, eval= nrow(fieldwork.tbl_wic_smps)>0}
+
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 10,
+                           exit_code = NA,
+                           note = "Write SMP Intersections")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+
+  new_smp_list <- fieldwork.tbl_wic_smps %>% 
+  select(smp_id) %>%
+  distinct()
+  new_smp_spatial <- SMP %>%
+    inner_join(new_smp_list, by= c("SMP_ID"="smp_id")) %>%
+    distinct()
+  
+  if(nrow(new_smp_spatial)>0){
+  
+  new_smp_spatial <- st_transform(new_smp_spatial, 4326)
+  smp_wkt_df <- new_smp_spatial %>%
+            st_geometry() %>%
+            st_as_text()
+  smp_wkt <- new_smp_spatial["SMP_ID"] %>%
+            st_set_geometry(NULL)
+  smp_wkt['wkt'] <- smp_wkt_df
+  names(smp_wkt) <- c("smp_id","wkt")
+  
+   if (nrow(smp_wkt) > 0 & params$write == TRUE){
+          
+          sql_string <- "delete from fieldwork.tbl_wic_smp_wkt WHERE smp_id = '%s';"
+          dbSendStatement(MARSDB_con, paste(sprintf(sql_string, smp_wkt$smp_id), collapse=""))
+          dbWriteTable (MARSDB_con , SQL("fieldwork.tbl_wic_smp_wkt"),smp_wkt,append= TRUE, row.names = FALSE)
+    }
+  
+  }
+
+
+```
+
+```{r section 10- WIC parcels map data update, include = FALSE, eval= nrow(fieldwork.tbl_wic_smps)>0}
+
+ wic_parcels_spatial <- Parcels_WIC_Filterd %>%
+   inner_join(fieldwork.tbl_wic_smps, by=c("FACILITYID"="wic_facility_id")) %>%
+  select(smp_id, address=ADDRESS,buffer_ft) %>%
+  distinct()
+  
+  new_smp_spatial <- st_transform(new_smp_spatial, 2272)
+
+
+  dist <- as.data.frame (matrix(NA, nrow = nrow(wic_parcels_spatial), ncol = 1))
+  names(dist) <- "distance_ft"
+    
+    for (i in 1:nrow(wic_parcels_spatial)){
+      
+      dist[i,1] <- st_distance(wic_parcels_spatial[i,], new_smp_spatial %>%
+                                 filter(new_smp_spatial$SMP_ID %in% wic_parcels_spatial[i,"smp_id"]))
+      
+    }
+  
+ wic_parcels_spatial["distance_ft"] <- dist
+ wic_parcels_spatial <- st_transform(wic_parcels_spatial, 4326)
+ wic_parcels_wkt_df <- wic_parcels_spatial %>%
+            st_geometry() %>%
+            st_as_text()
+ wic_parcels_wkt <- wic_parcels_spatial %>%
+            select(smp_id, address,buffer_ft, distance_ft) %>%
+            st_set_geometry(NULL)
+ wic_parcels_wkt['wkt'] <- wic_parcels_wkt_df
+ 
+  if (nrow(wic_parcels_wkt) > 0 & params$write == TRUE){
+          sql_string <- "delete from fieldwork.tbl_wic_parcels_wkt WHERE smp_id = '%s' and address = '%s';"
+          dbSendStatement(MARSDB_con, paste(sprintf(sql_string, wic_parcels_wkt$smp_id, wic_parcels_wkt$address), collapse=""))
+          dbWriteTable (MARSDB_con , SQL("fieldwork.tbl_wic_parcels_wkt"),wic_parcels_wkt,append= TRUE, row.names = FALSE)
+  }
+ 
+ 
+  #update the footprint polygons
+   building_footprint <- st_read(dsn = "\\\\pwdoows\\oows\\Watershed Sciences\\GSI Monitoring\\09 GIS Data\\Building_Footprint_Shapefile", layer = "Building_Footprint")
+
+   # create a table with address and wkt for building footprint
+  building_footprint <- building_footprint %>%
+    inner_join(wic_parcels_wkt, by = c("ADDRESS"="address")) %>%
+    filter(!is.na(ADDRESS))
+    
+    
+    #filter(building_footprint$ADDRESS %in% wic_parcels_wkt$address) %>%
+    #ilter(!is.na(ADDRESS))
+
+  building_footprint <- st_transform(building_footprint, 4326) %>%
+    select(smp_id, address = ADDRESS) %>%
+    distinct()
+    
+  building_footprint_text <- building_footprint %>%
+    st_geometry() %>%
+    st_as_text()
+  building_footprint_address<- building_footprint %>%
+    st_set_geometry(NULL) %>%
+    select(smp_id, address)
+  building_footprint_address['wkt'] <-building_footprint_text
+
+# Create a new wkt table for the bulding footprint by updating the WKT column
+  parcel_building_footprint <- wic_parcels_wkt %>%
+    select(-smp_id) %>%
+    select(-wkt) %>%
+    inner_join(building_footprint_address, by="address") %>%
+    select(-distance_ft)
+
+  
+    # distnace calculation from building footprint
+    new_smp_spatial <- st_transform(new_smp_spatial, 4326) %>%
+      distinct()
+    
+    #dist <- as.data.frame (matrix(NA, nrow = nrow(building_footprint), ncol = 1))
+    dist <- rep(0, nrow(building_footprint))
+    names(dist) <- "distance_footprint_ft"
+    
+    for (i in 1:nrow(building_footprint)){
+      
+          
+      smp_id_temp <- building_footprint[i,] %>%
+        st_set_geometry(NULL) %>%
+        select(smp_id) %>%
+        pull
+      
+      dist[i] <- st_distance(building_footprint[i,], new_smp_spatial %>%
+                                 filter(SMP_ID == smp_id_temp))/0.3048
+      
+    }
+    
+    dist_df <- data.frame (distance_footprint_ft = dist, address = building_footprint_address$address, smp_id =  building_footprint_address$smp_id )
+    
+    parcel_building_footprint <- parcel_building_footprint %>%
+      inner_join(dist_df, by= c("smp_id"="smp_id", "address"="address"))
+
+  
+  
+  
+ #write to DB
+   if (nrow(parcel_building_footprint) > 0 & params$write == TRUE){
+          sql_string <- "delete from fieldwork.tbl_wic_buildingfootprint_wkt WHERE smp_id = '%s' and address = '%s';"
+          dbSendStatement(MARSDB_con, paste(sprintf(sql_string, parcel_building_footprint$smp_id, parcel_building_footprint$address), collapse=""))
+          dbWriteTable (MARSDB_con , SQL("fieldwork.tbl_wic_buildingfootprint_wkt"),parcel_building_footprint,append= TRUE, row.names = FALSE)
+  }
+  
+  
+
+```
+
+```{r section 11- all parcels (wic and non-wic) map data update, include = FALSE, eval= nrow(fieldwork.tbl_wic_smps)>0 }
+
+   new_smp_spatial <- st_transform(new_smp_spatial, 2272)
+   new_smp_spatial_25ft <- st_buffer(new_smp_spatial, 25)
+   SMP_inters_allparcels_25 <- st_intersects(new_smp_spatial_25ft, PARCELS_SPATIAL)
+   all_parcel_index <- unlist(SMP_inters_allparcels_25) 
+   
+   all_parcels_smp <- PARCELS_SPATIAL[all_parcel_index,"ADDRESS"]
+   rownames(all_parcels_smp) <- NULL
+      
+   Inters_Obj <- SMP_inters_allparcels_25 
+      
+   GSI <- new_smp_spatial
+   GSI['system_id'] <- gsub('-\\d+$','',GSI$SMP_ID) 
+      
+      output <- NULL
+      df <- NULL
+      
+      for(i in 1:length(Inters_Obj)) {
+        
+        temp <- Inters_Obj[[i]]
+        
+        if (length(temp) > 0) {
+          
+          geometry <- PARCELS_SPATIAL[temp,c("ADDRESS","geometry")]
+          
+          SMPID <- GSI [i,c("SMP_ID","system_id")]
+  
+          SMPID <- SMPID %>% st_set_geometry(NULL)
+          
+          df <- data.frame(SMPID, geometry)
+          
+          output <- rbind(output, df ) 
+          
+        }
+        
+        output_parcel_all <- output 
+        
+      } 
+      rownames(output_parcel_all) <- NULL
+      output_parcel_all<- st_as_sf(output_parcel_all)
+      all_parcels_smp <- output_parcel_all %>%
+        select(-SMP_ID) %>%
+        distinct()
+      
+
+      
+ all_parcels_smp <- st_transform(all_parcels_smp, 4326)
+ wic_all_parcels_wkt_df <- all_parcels_smp %>%
+            st_geometry() %>%
+            st_as_text()
+ wic_all_parcels_wkt <- all_parcels_smp %>%
+            select(system_id, address=ADDRESS) %>%
+            st_set_geometry(NULL)
+ wic_all_parcels_wkt['wkt'] <- wic_all_parcels_wkt_df
+ 
+  if (nrow(wic_all_parcels_wkt) > 0 & params$write == TRUE){
+          sql_string <- "delete from fieldwork.tbl_wic_all_parcels_wkt WHERE system_id = '%s' and address = '%s';"
+          dbSendStatement(MARSDB_con, paste(sprintf(sql_string, wic_all_parcels_wkt$system_id, wic_all_parcels_wkt$address), collapse=""))
+          dbWriteTable (MARSDB_con , SQL("fieldwork.tbl_wic_all_parcels_wkt"),wic_all_parcels_wkt,append= TRUE, row.names = FALSE)
+    }
+  
+
+
+
+```
+
+```{r section 12- trimming for the showing the table in kable, include = FALSE, eval= nrow(smp_milestones)>0}
+
+      smp_milestones <- smp_milestones %>% select(workorder_id, smp_id,  phase, buffer_ft)
+
+```
+
+```{r Section 13- showing the table in kable ,echo=FALSE, results='asis'}
+
+  if (nrow(smp_milestones)>0) {
+
+      kable(smp_milestones, caption = "New WIC_SMP association at 25, 50, and 100 ft buffer distance")
+    
+  }
+
+```
+
+```{r section 14- DB disconnect, include=FALSE}
+
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = 0,
+                           note = "Execution successful")
+  
+  dbWriteTable(MARSDB_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
+
+      dbDisconnect(MARSDB_con)
+      dbDisconnect(cityworksDB_con)
+      dbDisconnect(GISDB_con)
+
+```

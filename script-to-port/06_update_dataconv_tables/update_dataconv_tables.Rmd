@@ -1,0 +1,987 @@
+---
+title: "Worker Script Report: Populate Data Conversion Tables"
+author: "Taylor Heffernan, Brian Cruice"
+date: "`r lubridate::now()`"
+output: html_document
+
+---
+
+```{r 0.1: Setup and Database Connections, include=FALSE}
+#database packages
+library(odbc)
+
+#data manipulation packages
+library(tidyverse)
+
+#hashing packages
+library(digest)
+
+#Other stuff
+library(knitr)
+library(digest)
+options(stringsAsFactors = FALSE)
+
+# Connecting to the DB's
+# ODBC Connection to DataConv
+dataconv <- dbConnect(odbc(),
+    Driver = "ODBC Driver 17 for SQL Server",
+    Server = "pwdgissql",
+    Database = "DataConv",
+    uid = Sys.getenv("gis_uid"),
+    pwd= Sys.getenv("gis_pwd"))
+
+mars <- dbConnect(odbc(), "mars14_datav2")
+
+errorCodes <- data.frame(code = 0:3,
+  message = c("Execution successful.",
+              "Could not connect to DB. Is Postgres or Dataconv down?",
+              NA, #Write error from TryCatch will be used
+              NA #Write error from TryCatch will be used
+              ), stringsAsFactors=FALSE)
+
+kill = FALSE
+errorCode = 0
+
+log_code <- digest(now()) #Unique ID for the log batches
+
+
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 1,
+                           exit_code = NA,
+                           note = "Testing DB connections")
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+
+  #################################
+  ####Error check - Did we connect?
+  #################################
+  if(any(!odbc::dbIsValid(mars), !odbc::dbIsValid(dataconv)))
+  {
+    kill = TRUE
+    errorCode = 1
+  }
+
+
+```
+
+```{r Break Point 1 - Bad Connection, echo = FALSE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+## Worker Script Report: Populate Data Conversion Tables
+This script is attempting to update DataConv tables within the `external` schema base on additions or edits to values on the `DataConv` GIS server.
+
+```{r Section 1 - Gathering data from pwdgis4, echo = FALSE}
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 2,
+                           exit_code = NA,
+                           note = "Gathering new data")
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+
+# Queries to populate the tables
+    #SMP tables
+    qry_basin <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswibasin'
+    qry_blueroof <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswiblueroof'
+    qry_bumpout <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswibumpout'
+    qry_cistern <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswicistern'
+    qry_drainagewell <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswidrainagewell'
+    qry_greenroof <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswigreenroof'
+    qry_permeablepavement <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance, POROUS_MAINTENANCE as porous_maintenance from gisad.gswipermeablepavement'
+    qry_planter <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswiplanter'
+    qry_raingarden <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswiraingarden'
+    qry_swale <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswiswale'
+    qry_tree <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SUBTYPE as subtype, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswitree  where SUBTYPE = 1 and ASSOCIATED_SMP_ID is not null'
+    qry_treetrench <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswitreetrench'
+    qry_trench <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswitrench'
+    qry_wetland <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, CONTRACTNUMBER as contract_number, FACILITYID as facility_id, SMP_ID as smp_id, SURFACE_MAINTENANCE as surface_maintenance, SUBSURFACE_MAINTENANCE as subsurface_maintenance from gisad.gswiwetland'
+
+    #Component tables
+    qry_cleanout <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswicleanout'
+    qry_controlstructure <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswicontrolstructure'
+    qry_conveyance <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id,SUBTYPE as subtype from gisad.gswiconveyance where COMPONENTID is not NULL'
+    qry_fitting <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswifitting'
+    qry_inlet <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id, PLUG_STATUS as plug_status from gisad.gswiinlet'
+    qry_manhole <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswimanhole'
+    qry_observationwell <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswiobservationwell'
+    qry_structure <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id, SymbolGroup as symbol_group, StructureType as structure_type from gisad.gswistructure where COMPONENTID is not NULL'
+
+# Grab the tables
+    basin <- dbGetQuery(dataconv, qry_basin) 
+    blueroof <- dbGetQuery(dataconv, qry_blueroof)
+    bumpout <- dbGetQuery(dataconv, qry_bumpout)
+    cistern <- dbGetQuery(dataconv, qry_cistern)
+    drainagewell <- dbGetQuery(dataconv, qry_drainagewell)
+    greenroof <- dbGetQuery(dataconv, qry_greenroof)
+    permeablepavement <- dbGetQuery(dataconv, qry_permeablepavement)
+    planter <- dbGetQuery(dataconv, qry_planter)
+    raingarden <- dbGetQuery(dataconv, qry_raingarden)
+    swale <- dbGetQuery(dataconv, qry_swale)
+    tree <- dbGetQuery(dataconv, qry_tree)
+    treetrench <- dbGetQuery(dataconv, qry_treetrench)
+    trench <- dbGetQuery(dataconv, qry_trench)
+    wetland <- dbGetQuery(dataconv, qry_wetland)
+
+    cleanout <- dbGetQuery(dataconv, qry_cleanout)
+    controlstructure <- dbGetQuery(dataconv, qry_controlstructure)
+    conveyance <- dbGetQuery(dataconv, qry_conveyance)
+    fitting <- dbGetQuery(dataconv, qry_fitting)
+    inlet <- dbGetQuery(dataconv, qry_inlet)
+    manhole <- dbGetQuery(dataconv, qry_manhole)
+    observationwell <- dbGetQuery(dataconv, qry_observationwell)
+    structure <- dbGetQuery(dataconv, qry_structure)
+
+```
+    
+```{r Section 2 - Hashing Tables, echo = FALSE}  
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 3,
+                           exit_code = NA,
+                           note = "Hashing new data")
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+
+# hash the tables
+    hash_basin <- basin %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_blueroof <- blueroof %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_bumpout <- bumpout %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_cistern <- cistern %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_drainagewell <- drainagewell %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_greenroof <- greenroof %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_permeablepavement <- permeablepavement %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_planter <- planter %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_raingarden <- raingarden %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_swale <- swale %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_tree <- tree %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_treetrench <- treetrench %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_trench <- trench %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_wetland <- wetland %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_cleanout <- cleanout %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_controlstructure <- controlstructure %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_conveyance <- conveyance %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_fitting <- fitting %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_inlet <- inlet %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_manhole <- manhole %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_observationwell <- observationwell %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+    hash_structure <- structure %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        select(-temp)
+
+```
+
+```{r Section 3 - Pull existing tables from MARS PG14 database, include=FALSE}
+#Query the DB to pull the existing versions
+    db_basin <- dbGetQuery(mars, "select * from external.tbl_gswibasin")
+    db_blueroof <- dbGetQuery(mars, "select * from external.tbl_gswiblueroof")
+    db_bumpout <- dbGetQuery(mars, "select * from external.tbl_gswibumpout")
+    db_cistern <- dbGetQuery(mars, "select * from external.tbl_gswicistern")
+    db_drainagewell <- dbGetQuery(mars, "select * from external.tbl_gswidrainagewell")
+    db_greenroof <- dbGetQuery(mars, "select * from external.tbl_gswigreenroof")
+    db_permeablepavement <- dbGetQuery(mars, "select * from external.tbl_gswipermeablepavement")
+    db_planter <- dbGetQuery(mars, "select * from external.tbl_gswiplanter")
+    db_raingarden <- dbGetQuery(mars, "select * from external.tbl_gswiraingarden")
+    db_swale <- dbGetQuery(mars, "select * from external.tbl_gswiswale")
+    db_tree <- dbGetQuery(mars, "select * from external.tbl_gswitree")
+    db_treetrench <- dbGetQuery(mars, "select * from external.tbl_gswitreetrench")
+    db_trench <- dbGetQuery(mars, "select * from external.tbl_gswitrench")
+    db_wetland <- dbGetQuery(mars, "select * from external.tbl_gswiwetland")
+
+    db_cleanout <- dbGetQuery(mars, "select * from external.tbl_gswicleanout")
+    db_controlstructure <- dbGetQuery(mars, "select * from external.tbl_gswicontrolstructure")
+    db_conveyance <- dbGetQuery(mars, "select * from external.tbl_gswiconveyance")
+    db_fitting <- dbGetQuery(mars, "select * from external.tbl_gswifitting")
+    db_inlet <- dbGetQuery(mars, "select * from external.tbl_gswiinlet")
+    db_manhole <- dbGetQuery(mars, "select * from external.tbl_gswimanhole")
+    db_observationwell <- dbGetQuery(mars, "select * from external.tbl_gswiobservationwell")
+    db_structure <- dbGetQuery(mars, "select * from external.tbl_gswistructure")
+```
+
+```{r Section 4 - Identify differnces between tables, include=FALSE}
+#Anti join to find what is different
+    anti_basin <- anti_join(hash_basin, db_basin)
+    anti_blueroof <- anti_join(hash_blueroof, db_blueroof)
+    anti_bumpout <- anti_join(hash_bumpout, db_bumpout)
+    anti_cistern <- anti_join(hash_cistern, db_cistern)
+    anti_drainagewell <- anti_join(hash_drainagewell, db_drainagewell)
+    anti_greenroof <- anti_join(hash_greenroof, db_greenroof)
+    anti_permeablepavement <- anti_join(hash_permeablepavement, db_permeablepavement)
+    anti_planter <- anti_join(hash_planter, db_planter)
+    anti_raingarden <- anti_join(hash_raingarden, db_raingarden)
+    anti_swale <- anti_join(hash_swale, db_swale)
+    anti_tree <- anti_join(hash_tree, db_tree)
+    anti_treetrench <- anti_join(hash_treetrench, db_treetrench)
+    anti_trench <- anti_join(hash_trench, db_trench)
+    anti_wetland <- anti_join(hash_wetland, db_wetland)
+
+    anti_cleanout <- anti_join(hash_cleanout, db_cleanout)
+    anti_controlstructure <- anti_join(hash_controlstructure, db_controlstructure)
+    anti_conveyance <- anti_join(hash_conveyance, db_conveyance)
+    anti_fitting <- anti_join(hash_fitting, db_fitting)
+    anti_inlet <- anti_join(hash_inlet, db_inlet)
+    anti_manhole <- anti_join(hash_manhole, db_manhole)
+    anti_observationwell <- anti_join(hash_observationwell, db_observationwell)
+    anti_structure <- anti_join(hash_structure, db_structure)
+
+#Filter to detect new items instead of edits
+#New assets will have new facility IDs
+#New facility = append the row
+    new_basin <- filter(anti_basin,!(facility_id %in% db_basin$facility_id))
+    new_blueroof <- filter(anti_blueroof,!(facility_id %in% db_blueroof$facility_id))
+    new_bumpout <- filter(anti_bumpout,!(facility_id %in% db_bumpout$facility_id))
+    new_cistern <- filter(anti_cistern,!(facility_id %in% db_cistern$facility_id))
+    new_drainagewell <- filter(anti_drainagewell,!(facility_id %in% db_drainagewell$facility_id))
+    new_greenroof <- filter(anti_greenroof,!(facility_id %in% db_greenroof$facility_id))
+    new_permeablepavement <- filter(anti_permeablepavement,!(facility_id %in% db_permeablepavement$facility_id))
+    new_planter <- filter(anti_planter,!(facility_id %in% db_planter$facility_id))
+    new_raingarden <- filter(anti_raingarden,!(facility_id %in% db_raingarden$facility_id))
+    new_swale <- filter(anti_swale,!(facility_id %in% db_swale$facility_id))
+    new_tree <- filter(anti_tree,!(facility_id %in% db_tree$facility_id))
+    new_treetrench <- filter(anti_treetrench,!(facility_id %in% db_treetrench$facility_id))
+    new_trench <- filter(anti_trench,!(facility_id %in% db_trench$facility_id))
+    new_wetland <- filter(anti_wetland,!(facility_id %in% db_wetland$facility_id))
+
+    new_cleanout <- filter(anti_cleanout, !(facility_id %in% db_cleanout$facility_id))
+    new_controlstructure <- filter(anti_controlstructure, !(facility_id %in% db_controlstructure$facility_id))
+    new_conveyance <- filter(anti_conveyance, !(facility_id %in% db_conveyance$facility_id))
+    new_fitting <- filter(anti_fitting, !(facility_id %in% db_fitting$facility_id))
+    new_inlet <- filter(anti_inlet, !(facility_id %in% db_inlet$facility_id))
+    new_manhole <- filter(anti_manhole, !(facility_id %in% db_manhole$facility_id))
+    new_observationwell <- filter(anti_observationwell, !(facility_id %in% db_observationwell$facility_id))
+    new_structure <- filter(anti_structure, !(facility_id %in% db_structure$facility_id))
+
+    ###Error Check - Are there any new assets?###
+    ###If not, set skip flag for new assets, but keep running###
+
+    newAssets = FALSE #Set true if any of the above objects are
+
+    if(any(nrow(new_basin) != 0, nrow(new_blueroof) != 0, nrow(new_bumpout) != 0, nrow(new_cistern) != 0, nrow(new_drainagewell) != 0, nrow(new_greenroof) != 0, nrow(new_permeablepavement) != 0, nrow(new_planter) != 0, nrow(new_raingarden) != 0, nrow(new_swale) != 0, nrow(new_tree) != 0, nrow(new_treetrench) != 0, nrow(new_trench) != 0, nrow(new_wetland) != 0, nrow(new_cleanout) != 0, nrow(new_controlstructure) != 0, nrow(new_conveyance) != 0, nrow(new_fitting) != 0, nrow(new_inlet) != 0, nrow(new_manhole) != 0, nrow(new_observationwell) != 0, nrow(new_structure) != 0))
+    {
+      newAssets = TRUE
+    }
+
+```
+
+```{r Section We Are As One - external.tbl_gswibasin, echo = FALSE, eval = all(!kill, newAssets, nrow(new_basin) > 0)}
+###New SMP Polygons
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswibasin`: ",   nrow(new_basin)))
+kable(head(new_basin))
+```
+
+```{r Section We Are As One - external.tbl_gswiblueroof, echo = FALSE, eval = all(!kill, newAssets, nrow(new_blueroof) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiblueroof`: ",   nrow(new_blueroof)))
+kable(head(new_blueroof))
+```
+
+```{r Section We Are As One - external.tbl_gswibumpout, echo = FALSE, eval = all(!kill, newAssets, nrow(new_bumpout) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswibumpout`: ",   nrow(new_bumpout)))
+kable(head(new_bumpout))
+```
+
+```{r Section We Are As One - external.tbl_gswicistern, echo = FALSE, eval = all(!kill, newAssets, nrow(new_cistern) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswicistern`: ",   nrow(new_cistern)))
+kable(head(new_cistern))
+```
+
+```{r Section We Are As One - external.tbl_gswidrainagewell, echo = FALSE, eval = all(!kill, newAssets, nrow(new_drainagewell) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswidrainagewell`: ",   nrow(new_drainagewell)))
+kable(head(new_drainagewell))
+```
+
+```{r Section We Are As One - external.tbl_gswigreenroof, echo = FALSE, eval = all(!kill, newAssets, nrow(new_greenroof) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswigreenroof`: ",   nrow(new_greenroof)))
+kable(head(new_greenroof))
+```
+
+```{r Section We Are As One - external.tbl_gswipermeablepavement, echo = FALSE, eval = all(!kill, newAssets, nrow(new_permeablepavement) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswipermeablepavement`: ",   nrow(new_permeablepavement)))
+kable(head(new_permeablepavement))
+```
+
+```{r Section We Are As One - external.tbl_gswiplanter, echo = FALSE, eval = all(!kill, newAssets, nrow(new_planter) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiplanter`: ",   nrow(new_planter)))
+kable(head(new_planter))
+```
+
+```{r Section We Are As One - external.tbl_gswiraingarden, echo = FALSE, eval = all(!kill, newAssets, nrow(new_raingarden) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiraingarden`: ",   nrow(new_raingarden)))
+kable(head(new_raingarden))
+```
+
+```{r Section We Are As One - external.tbl_gswiswale, echo = FALSE, eval = all(!kill, newAssets, nrow(new_swale) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiswale`: ",   nrow(new_swale)))
+kable(head(new_swale))
+```
+
+```{r Section We Are As One - external.tbl_gswitree, echo = FALSE, eval = all(!kill, newAssets, nrow(new_tree) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswitree`: ",   nrow(new_tree)))
+kable(head(new_tree))
+```
+
+```{r Section We Are As One - external.tbl_gswitreetrench, echo = FALSE, eval = all(!kill, newAssets, nrow(new_treetrench) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswitreetrench`: ",   nrow(new_treetrench)))
+kable(head(new_treetrench))
+```
+
+```{r Section We Are As One - external.tbl_gswitrench, echo = FALSE, eval = all(!kill, newAssets, nrow(new_trench) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswitrench`: ",   nrow(new_trench)))
+kable(head(new_trench))
+```
+
+```{r Section We Are As One - external.tbl_gswiwetland, echo = FALSE, eval = all(!kill, newAssets, nrow(new_wetland) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiwetland`: ",   nrow(new_wetland)))
+kable(head(new_wetland))
+```
+
+```{r Section We Are As One - external.tbl_gswicleanout, echo = FALSE, eval = all(!kill, newAssets, nrow(new_cleanout) > 0)}
+###New SMP Components
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswicleanout`: ",   nrow(new_cleanout)))
+kable(head(new_cleanout))
+```
+
+```{r Section We Are As One - external.tbl_gswicontrolstructure, echo = FALSE, eval = all(!kill, newAssets, nrow(new_controlstructure) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswicontrolstructure`: ",   nrow(new_controlstructure)))
+kable(head(new_controlstructure))
+```
+
+```{r Section We Are As One - external.tbl_gswiconveyance, echo = FALSE, eval = all(!kill, newAssets, nrow(new_conveyance) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiconveyance`: ",   nrow(new_conveyance)))
+kable(head(new_conveyance))
+```
+
+```{r Section We Are As One - external.tbl_gswifitting, echo = FALSE, eval = all(!kill, newAssets, nrow(new_fitting) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswifitting`: ",   nrow(new_fitting)))
+kable(head(new_fitting))
+```
+
+```{r Section We Are As One - external.tbl_gswiinlet, echo = FALSE, eval = all(!kill, newAssets, nrow(new_inlet) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiinlet`: ",   nrow(new_inlet)))
+kable(head(new_inlet))
+```
+
+```{r Section We Are As One - external.tbl_gswimanhole, echo = FALSE, eval = all(!kill, newAssets, nrow(new_manhole) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswimanhole`: ",   nrow(new_manhole)))
+kable(head(new_manhole))
+```
+
+```{r Section We Are As One - external.tbl_gswiobservationwell, echo = FALSE, eval = all(!kill, newAssets, nrow(new_observationwell) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiobservationwell`: ",   nrow(new_observationwell)))
+kable(head(new_observationwell))
+```
+
+```{r Section We Are As One - external.tbl_gswistructure, echo = FALSE, eval = all(!kill, newAssets, nrow(new_structure) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswistructure`: ",   nrow(new_structure)))
+kable(head(new_structure))
+```
+
+```{r Section We Are As One - Write Everything, echo = FALSE, eval = all(!kill, newAssets)}
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 4,
+                           exit_code = NA,
+                           note = "Writing new data")
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+
+#Write new assets
+if(newAssets){
+  
+  tryCatch(
+    expr = {
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswibasin"), new_basin, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiblueroof"), new_blueroof, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswibumpout"), new_bumpout, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswicistern"), new_cistern, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswidrainagewell"), new_drainagewell, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswigreenroof"), new_greenroof, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswipermeablepavement"), new_permeablepavement, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiplanter"), new_planter, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiraingarden"), new_raingarden, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiswale"), new_swale, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswitree"), new_tree, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswitreetrench"), new_treetrench, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswitrench"), new_trench, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiwetland"), new_wetland, append = TRUE)
+
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswicleanout"), new_cleanout, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswicontrolstructure"), new_controlstructure, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiconveyance"), new_conveyance, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswifitting"), new_fitting, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiinlet"), new_inlet, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswimanhole"), new_manhole, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiobservationwell"), new_observationwell, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswistructure"), new_structure, append = TRUE)
+    },
+    error = function(e){
+      kill <<- TRUE
+      errorCode <<- 2
+      errorCodes$message[errorCode+1] <<- e$message #Error object is a list
+    }
+  )
+}
+  
+    if(!kill){ #If the write succeeded
+      new_footprints <- nrow(new_basin) + nrow(new_blueroof) + nrow(new_bumpout) + nrow(new_cistern) + nrow(new_drainagewell) + nrow(new_greenroof) + nrow(new_permeablepavement) + nrow(new_planter) + nrow(new_raingarden) + nrow(new_swale) + nrow(new_tree) + nrow(new_treetrench) + nrow(new_trench) + nrow(new_wetland)
+
+      new_components <- nrow(new_cleanout) + nrow(new_controlstructure) + nrow(new_conveyance) + nrow(new_fitting) + nrow(new_inlet) + nrow(new_manhole) + nrow(new_observationwell) + nrow(new_structure)
+      
+      logMessage <- data.frame(date = as.Date(today()),
+                           records = new_footprints + new_components,
+                           type = "Records",
+                           hash = log_code)
+  
+      dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_writes_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+    }
+
+
+    
+    
+
+```
+
+```{r Break Point 2 - Bad Write, echo = FALSE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+```{r Section X abc, echo = FALSE, include = FALSE}
+
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 5,
+                           exit_code = NA,
+                           note = "Searching for updates")
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+  
+# Old facility = update the row
+#Set UID to be the last column to facilitate the substitution mechanism in dbSendQuery
+   
+    update_basin = anti_join(anti_basin, new_basin) %>%
+        left_join(select(db_basin, gswibasin_uid, facility_id)) 
+
+    update_blueroof = anti_join(anti_blueroof, new_blueroof) %>%
+        left_join(select(db_blueroof, gswiblueroof_uid, facility_id)) 
+
+    update_bumpout = anti_join(anti_bumpout, new_bumpout) %>%
+        left_join(select(db_bumpout, gswibumpout_uid, facility_id)) 
+
+    update_cistern = anti_join(anti_cistern, new_cistern) %>%
+        left_join(select(db_cistern, gswicistern_uid, facility_id)) 
+
+    update_drainagewell = anti_join(anti_drainagewell, new_drainagewell) %>%
+        left_join(select(db_drainagewell, gswidrainagewell_uid, facility_id)) 
+
+    update_greenroof = anti_join(anti_greenroof, new_greenroof) %>%
+        left_join(select(db_greenroof, gswigreenroof_uid, facility_id)) 
+
+    update_permeablepavement = anti_join(anti_permeablepavement, new_permeablepavement) %>%
+        left_join(select(db_permeablepavement, gswipermeablepavement_uid, facility_id)) 
+
+    update_planter = anti_join(anti_planter, new_planter) %>%
+        left_join(select(db_planter, gswiplanter_uid, facility_id)) 
+
+    update_raingarden = anti_join(anti_raingarden, new_raingarden) %>%
+        left_join(select(db_raingarden, gswiraingarden_uid, facility_id)) 
+
+    update_swale = anti_join(anti_swale, new_swale) %>%
+        left_join(select(db_swale, gswiswale_uid, facility_id)) 
+
+    update_tree = anti_join(anti_tree, new_tree) %>%
+        left_join(select(db_tree, gswitree_uid, facility_id)) 
+
+    update_treetrench = anti_join(anti_treetrench, new_treetrench) %>%
+        left_join(select(db_treetrench, gswitreetrench_uid, facility_id)) 
+
+    update_trench = anti_join(anti_trench, new_trench) %>%
+        left_join(select(db_trench, gswitrench_uid, facility_id)) 
+
+    update_wetland = anti_join(anti_wetland, new_wetland) %>%
+        left_join(select(db_wetland, gswiwetland_uid, facility_id)) 
+
+
+    update_cleanout <- anti_join(anti_cleanout, new_cleanout) %>%
+        left_join(select(db_cleanout, gswicleanout_uid, facility_id)) 
+
+    update_controlstructure <- anti_join(anti_controlstructure, new_controlstructure) %>%
+        left_join(select(db_controlstructure, gswicontrolstructure_uid, facility_id)) 
+
+    update_conveyance <- anti_join(anti_conveyance, new_conveyance) %>%
+        left_join(select(db_conveyance, gswiconveyance_uid, facility_id)) 
+
+    update_fitting <- anti_join(anti_fitting, new_fitting) %>%
+        left_join(select(db_fitting, gswifitting_uid, facility_id)) 
+
+    update_inlet <- anti_join(anti_inlet, new_inlet) %>%
+        left_join(select(db_inlet, gswiinlet_uid, facility_id)) 
+
+    update_manhole <- anti_join(anti_manhole, new_manhole) %>%
+        left_join(select(db_manhole, gswimanhole_uid, facility_id)) 
+
+    update_observationwell <- anti_join(anti_observationwell, new_observationwell) %>%
+        left_join(select(db_observationwell, gswiobservationwell_uid, facility_id)) 
+
+    update_structure <- anti_join(anti_structure, new_structure) %>%
+        left_join(select(db_structure, gswistructure_uid, facility_id)) 
+    
+    newUpdates = FALSE #Set true if any of the above objects are
+
+    if(any(nrow(update_basin) != 0, nrow(update_blueroof) != 0, nrow(update_bumpout) != 0, nrow(update_cistern) != 0, nrow(update_drainagewell) != 0, nrow(update_greenroof) != 0, nrow(update_permeablepavement) != 0, nrow(update_planter) != 0, nrow(update_raingarden) != 0, nrow(update_swale) != 0, nrow(update_tree) != 0, nrow(update_treetrench) != 0, nrow(update_trench) != 0, nrow(update_wetland) != 0, nrow(update_cleanout) != 0, nrow(update_controlstructure) != 0, nrow(update_conveyance) != 0, nrow(update_fitting) != 0, nrow(update_inlet) != 0, nrow(update_manhole) != 0, nrow(update_observationwell) != 0, nrow(update_structure) != 0))
+    {
+      newUpdates = TRUE
+    }
+    
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswibasin, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_basin) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswibasin`: ",   nrow(update_basin)))
+kable(head(update_basin))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiblueroof, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_blueroof) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiblueroof`: ",   nrow(update_blueroof)))
+kable(head(update_blueroof))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswibumpout, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_bumpout) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswibumpout`: ",   nrow(update_bumpout)))
+kable(head(update_bumpout))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswicistern, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_cistern) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswicistern`: ",   nrow(update_cistern)))
+kable(head(update_cistern))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswidrainagewell, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_drainagewell) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswidrainagewell`: ",   nrow(update_drainagewell)))
+kable(head(update_drainagewell))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswigreenroof, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_greenroof) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswigreenroof`: ",   nrow(update_greenroof)))
+kable(head(update_greenroof))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswipermeablepavement, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_permeablepavement) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswipermeablepavement`: ",   nrow(update_permeablepavement)))
+kable(head(update_permeablepavement))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiplanter, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_planter) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiplanter`: ",   nrow(update_planter)))
+kable(head(update_planter))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiraingarden, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_raingarden) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiraingarden`: ",   nrow(update_raingarden)))
+kable(head(update_raingarden))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiswale, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_swale) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiswale`: ",   nrow(update_swale)))
+kable(head(update_swale))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswitree, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_tree) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswitree`: ",   nrow(update_tree)))
+kable(head(update_tree))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswitreetrench, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_treetrench) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswitreetrench`: ",   nrow(update_treetrench)))
+kable(head(update_treetrench))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswitrench, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_trench) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswitrench`: ",   nrow(update_trench)))
+kable(head(update_trench))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiwetland, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_wetland) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiwetland`: ",   nrow(update_wetland)))
+kable(head(update_wetland))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswicleanout, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_cleanout) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswicleanout`: ",   nrow(update_cleanout)))
+kable(head(update_cleanout))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswicontrolstructure, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_controlstructure) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswicontrolstructure`: ",   nrow(update_controlstructure)))
+kable(head(update_controlstructure))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiconveyance, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_conveyance) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiconveyance`: ",   nrow(update_conveyance)))
+kable(head(update_conveyance))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswifitting, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_fitting) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswifitting`: ",   nrow(update_fitting)))
+kable(head(update_fitting))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiinlet, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_inlet) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiinlet`: ",   nrow(update_inlet)))
+kable(head(update_inlet))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswimanhole, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_manhole) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswimanhole`: ",   nrow(update_manhole)))
+kable(head(update_manhole))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiobservationwell, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_observationwell) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiobservationwell`: ",   nrow(update_observationwell)))
+kable(head(update_observationwell))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswistructure, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_structure) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswistructure`: ",   nrow(update_structure)))
+kable(head(update_structure))
+```
+
+```{r Section We Are As One - Update Everything, echo = FALSE, eval = all(!kill, newUpdates)}
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 6,
+                           exit_code = NA,
+                           note = "Writing new updates")
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+
+#Write new assets
+if(newUpdates){
+  
+  tryCatch(
+    expr = {
+        #Update old assets
+        if(nrow(update_basin) > 0){
+            update_gswibasin <- dbSendQuery(mars, 'UPDATE external.tbl_gswibasin set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswibasin_uid=?')
+            dbBind(update_gswibasin, update_basin)
+            dbClearResult(update_gswibasin)
+        }
+
+        if(nrow(update_blueroof) > 0){
+            update_gswiblueroof <- dbSendQuery(mars, 'UPDATE external.tbl_gswiblueroof set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswiblueroof_uid=?')
+            dbBind(update_gswiblueroof, update_blueroof)
+            dbClearResult(update_gswiblueroof)
+        }
+
+        if(nrow(update_bumpout) > 0){
+            update_gswibumpout <- dbSendQuery(mars, 'UPDATE external.tbl_gswibumpout set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswibumpout_uid=?')
+            dbBind(update_gswibumpout, update_bumpout)
+            dbClearResult(update_gswibumpout)
+        }
+
+        if(nrow(update_cistern) > 0){
+            update_gswicistern <- dbSendQuery(mars, 'UPDATE external.tbl_gswicistern set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswicistern_uid=?')
+            dbBind(update_gswicistern, update_cistern)
+            dbClearResult(update_gswicistern)
+        }
+
+        if(nrow(update_drainagewell) > 0){
+            update_gswidrainagewell <- dbSendQuery(mars, 'UPDATE external.tbl_gswidrainagewell set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswidrainagewell_uid=?')
+            dbBind(update_gswidrainagewell, update_drainagewell)
+            dbClearResult(update_gswidrainagewell)
+        }
+
+        if(nrow(update_greenroof) > 0){
+            update_gswigreenroof <- dbSendQuery(mars, 'UPDATE external.tbl_gswigreenroof set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswigreenroof_uid=?')
+            dbBind(update_gswigreenroof, update_greenroof)
+            dbClearResult(update_gswigreenroof)
+        }
+
+        if(nrow(update_permeablepavement) > 0){
+            update_gswipermeablepavement <- dbSendQuery(mars, 'UPDATE external.tbl_gswipermeablepavement set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, porous_maintenance=?, md5hash=? where gswipermeablepavement_uid=?')
+            dbBind(update_gswipermeablepavement, update_permeablepavement)
+            dbClearResult(update_gswipermeablepavement)
+        }
+
+        if(nrow(update_planter) > 0){
+            update_gswiplanter <- dbSendQuery(mars, 'UPDATE external.tbl_gswiplanter set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswiplanter_uid=?')
+            dbBind(update_gswiplanter, update_planter)
+            dbClearResult(update_gswiplanter)
+        }
+
+        if(nrow(update_raingarden) > 0){
+            update_gswiraingarden <- dbSendQuery(mars, 'UPDATE external.tbl_gswiraingarden set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswiraingarden_uid=?')
+            dbBind(update_gswiraingarden, update_raingarden)
+            dbClearResult(update_gswiraingarden)
+        }
+
+        if(nrow(update_swale) > 0){
+            update_gswiswale <- dbSendQuery(mars, 'UPDATE external.tbl_gswiswale set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswiswale_uid=?')
+            dbBind(update_gswiswale, update_swale)
+            dbClearResult(update_gswiswale)
+        }
+
+        if(nrow(update_tree) > 0){
+            update_gswitree <- dbSendQuery(mars, 'UPDATE external.tbl_gswitree set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, subtype=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswitree_uid=?')
+            dbBind(update_gswitree, update_tree)
+            dbClearResult(update_gswitree)
+        }
+
+        if(nrow(update_treetrench) > 0){
+            update_gswitreetrench <- dbSendQuery(mars, 'UPDATE external.tbl_gswitreetrench set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswitreetrench_uid=?')
+            dbBind(update_gswitreetrench, update_treetrench)
+            dbClearResult(update_gswitreetrench)
+        }
+
+        if(nrow(update_trench) > 0){
+            update_gswitrench <- dbSendQuery(mars, 'UPDATE external.tbl_gswitrench set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswitrench_uid=?')
+            dbBind(update_gswitrench, update_trench)
+            dbClearResult(update_gswitrench)
+        }
+
+        if(nrow(update_wetland) > 0){
+            update_gswiwetland <- dbSendQuery(mars, 'UPDATE external.tbl_gswiwetland set object_id=?, lifecycle_status=?, contract_number=?, facility_id=?, smp_id=?, surface_maintenance=?, subsurface_maintenance=?, md5hash=? where gswiwetland_uid=?')
+            dbBind(update_gswiwetland, update_wetland)
+            dbClearResult(update_gswiwetland)
+        }
+
+
+        if(nrow(update_cleanout) > 0){
+            update_gswicleanout <- dbSendQuery(mars, 'update external.tbl_gswicleanout set object_id=?, lifecycle_status=?, facility_id=?, component_id=?, md5hash=? where gswicleanout_uid=?')
+            dbBind(update_gswicleanout, update_cleanout)
+            dbClearResult(update_gswicleanout)
+        }
+
+        if(nrow(update_controlstructure) > 0){
+            update_gswicontrolstructure <- dbSendQuery(mars, 'update external.tbl_gswicontrolstructure set object_id=?, lifecycle_status=?, facility_id=?, component_id=?, md5hash=? where gswicontrolstructure_uid=?')
+            dbBind(update_gswicontrolstructure, update_controlstructure)
+            dbClearResult(update_gswicontrolstructure)
+        }
+
+        if(nrow(update_conveyance) > 0){
+            update_gswiconveyance <- dbSendQuery(mars, 'update external.tbl_gswiconveyance set object_id=?, lifecycle_status=?, facility_id=?, component_id=?, subtype=?, md5hash=? where gswiconveyance_uid=?')
+            dbBind(update_gswiconveyance, update_conveyance)
+            dbClearResult(update_gswiconveyance)
+        }
+
+        if(nrow(update_fitting) > 0){
+            update_gswifitting <- dbSendQuery(mars, 'update external.tbl_gswifitting set object_id=?, lifecycle_status=?, facility_id=?, component_id=?, md5hash=? where gswifitting_uid=?')
+            dbBind(update_gswifitting, update_fitting)
+            dbClearResult(update_gswifitting)
+        }
+
+        if(nrow(update_inlet) > 0){
+            update_gswiinlet <- dbSendQuery(mars, 'update external.tbl_gswiinlet set object_id=?, lifecycle_status=?, facility_id=?, component_id=?, plug_status=?, md5hash=? where gswiinlet_uid=?')
+            dbBind(update_gswiinlet, update_inlet)
+            dbClearResult(update_gswiinlet)
+        }
+
+        if(nrow(update_manhole) > 0){
+            update_gswimanhole <- dbSendQuery(mars, 'update external.tbl_gswimanhole set object_id=?, lifecycle_status=?, facility_id=?, component_id=?, md5hash=? where gswimanhole_uid=?')
+            dbBind(update_gswimanhole, update_manhole)
+            dbClearResult(update_gswimanhole)
+        }
+
+        if(nrow(update_observationwell) > 0){
+            update_gswiobservationwell <- dbSendQuery(mars, 'update external.tbl_gswiobservationwell set object_id=?, lifecycle_status=?, facility_id=?, component_id=?, md5hash=? where gswiobservationwell_uid=?')
+            dbBind(update_gswiobservationwell, update_observationwell)
+            dbClearResult(update_gswiobservationwell)
+        }
+
+        if(nrow(update_structure) > 0){
+            update_gswistructure <- dbSendQuery(mars, 'update external.tbl_gswistructure set object_id=?, lifecycle_status=?, facility_id=?, component_id=?, symbol_group=?, structure_type=?, md5hash=? where gswistructure_uid=?')
+            dbBind(update_gswistructure, update_structure)
+            dbClearResult(update_gswistructure)
+        }
+    },
+    error = function(e){
+      kill <<- TRUE
+      errorCode <<- 3
+      errorCodes$message[errorCode+1] <<- e$message #Error object is a list
+    }
+  )
+}
+
+#Write records
+if(!kill){ #If the write succeeded
+  updated_records <- nrow(update_basin) + nrow(update_blueroof) + nrow(update_bumpout) + nrow(update_cistern) + nrow(update_drainagewell) + nrow(update_greenroof) + nrow(update_permeablepavement) + nrow(update_planter) + nrow(update_raingarden) + nrow(update_swale) + nrow(update_tree) + nrow(update_treetrench) + nrow(update_trench) + nrow(update_wetland) + nrow(update_cleanout) + nrow(update_controlstructure) + nrow(update_conveyance) + nrow(update_fitting) + nrow(update_inlet) + nrow(update_manhole) + nrow(update_observationwell) + nrow(update_structure)
+  
+  logMessage <- data.frame(date = as.Date(today()),
+                           records = updated_records,
+                           type = "Updates",
+                           hash = log_code)
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_writes_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+}
+    
+```
+
+```{r Break Point 3 - Bad Update, echo = FALSE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+# Script Results: `r ifelse(kill, "FAILURE", "SUCCESS")`
+## Exit Code: `r errorCode`
+## Exit Message: `r errorCodes$message[errorCode+1]`
+
+```{r Section 6: Close Out Access Database, echo = FALSE}
+
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(mars, RPostgres::Id(schema = "log", table = "tbl_script_dataconv"), logMessage, append = TRUE, row.names=FALSE)
+
+dbDisconnect(dataconv)
+dbDisconnect(mars)
+
+```
