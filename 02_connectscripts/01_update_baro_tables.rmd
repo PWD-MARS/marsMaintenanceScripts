@@ -1,0 +1,456 @@
+---
+title: "Worker Script Report: Update Baro Tables"
+author:
+- Taylor Heffernan
+- Updating baro and baro_rawfile
+date: "`r lubridate::now()`"
+output: html_document
+
+---
+
+```{r setup, include=FALSE}
+#Dplyr stuff
+library(magrittr)
+library(tidyverse)
+library(lubridate)
+
+#Database Stuff
+library(pool)
+
+#Other stuff
+library(knitr)
+library(openssl)
+library(digest)
+options(stringsAsFactors=FALSE)
+
+errorCodes <- data.frame(code = 0:4,
+  message = c("Execution successful.",
+              "Could not connect to Postgres DB. Is Postgres down?",
+              "No baro files found in site folders. Are we connected to Active Directory?",
+              NA, #Write error from TryCatch will be used
+              NA #Write error from TryCatch will be used
+               ), stringsAsFactors=FALSE)
+
+kill = FALSE
+errorCode = 0
+
+log_code <- digest(now()) #Unique ID for the log batches
+
+#Are we running locally or on RStudio Connect?
+  #We will check if a filepath that only exists on Connect exists.
+  #We will use this to determine the prefix for the filepaths to the H&H radar files
+locationCheck <- list.files("/media/mounts/gsi-monitoring/02 GSI Monitoring Sites")
+
+if(length(locationCheck) == 0){ 
+  #We are running locally (ie debugging/developing)
+  sitefolder <- "//pwdoows/oows/watershed sciences/gsi monitoring/02 gsi monitoring sites"
+  otherfolder <- "/media/mounts/gsi-monitoring/02 GSI Monitoring Sites" #For verifying filepaths in an agnostic way
+} else{
+  #We are running on Connect
+  sitefolder <- "/media/mounts/gsi-monitoring/02 GSI Monitoring Sites"
+  otherfolder <- "//pwdoows/oows/watershed sciences/gsi monitoring/02 gsi monitoring sites" #For verifying filepaths in an agnostic way
+}
+
+
+```
+
+```{r Section 0 - Preamble and database connections, include=FALSE}
+###Section 0.1: Check parameter validity
+
+###Section 0.2: Connect to the MARS database
+marsDBCon <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "sandbox_dtime",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
+
+  #################################
+  ####Error check - Did we connect?
+  #################################
+  if(typeof(marsDBCon) == "list")
+  {
+    kill = TRUE
+    errorCode = 1
+  }
+
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 1,
+                           exit_code = NA,
+                           note = "DB Connection Successful")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+
+###Section 0.3: Helper function to find the first date in a file
+  #firstDate function reads a few lines of the file and finds a date at (or near) the top of the file
+  firstDate <- function(datafile){
+    dates <- sapply(datafile, FUN = function(x){
+      temp <- read.csv(x, skip = 1, nrows = 5)
+      temp <- temp[, 2:4]
+      colnames(temp) <- c("dtime", "pres_psi", "temp_f")
+      return(temp$dtime[1])
+    })
+    names(dates) <- NULL
+    return(dates)
+  }
+	
+```
+
+```{r Break Point 1 - Bad Connection, echo = FALSE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+```{r Section 1 - Gathering baro data, include = FALSE}
+ 
+  ###Log: Gathering Baro Data
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 2,
+                           exit_code = NA,
+                           note = "Searching for Baro Files")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+
+  #Fetch all host folders for baro data
+  baro_rawfolders <- dbGetQuery(marsDBCon, "SELECT * FROM admin.tbl_baro_rawfolder") %>%
+    mutate(folderpath = paste(sitefolder, folderpath, sep = "/"))
+    
+
+  #Fetch all distinct baro_rawfile_uids from the baro table, to guard against files existing in baro_rawfile but not in baro
+  fileswithdata <- dbGetQuery(marsDBCon, "SELECT baro_rawfile_uid, filepath from admin.tbl_baro_rawfile where baro_rawfile_uid in (select distinct baro_rawfile_uid from data.tbl_baro)") %>%
+    mutate(filepath = str_replace_all(filepath, r"(\\)", "/")) %>%
+    mutate(filepath = str_replace(tolower(filepath), otherfolder, sitefolder))
+  
+  #Fetch all of the latest dates for every baro in the baro table
+  latestdates <- dbGetQuery(marsDBCon, "SELECT r.smp_id, max(b.dtime) as latestdate FROM data.tbl_baro b LEFT JOIN admin.tbl_baro_rawfile r ON b.baro_rawfile_uid = r.baro_rawfile_uid GROUP BY smp_id")
+  
+  #If there are no dates, fake it with a date of January 1st, 2001
+  latestdates <- left_join(baro_rawfolders, latestdates, by = "smp_id")
+  latestdates$latestdate[is.na(latestdates$latestdate)] <- ymd_hms("2001-01-01 00:00:00", tz = "America/New_York")
+
+  #Search for all CSV files that say "baro" within those folders
+  #Attach the smp_id from the associated raw folder to each path so we know which baro they belong to
+  foundfiles <- NULL
+  for(i in 1:nrow(baro_rawfolders)){
+    files <- list.files(baro_rawfolders$folderpath[i], pattern = "baro.*csv$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE) 
+
+    if(length(files) == 0){
+      break #If there is no baro data to be found, skip that folder
+    }
+    
+    tempfiles <- data.frame(filepath = tolower(files), smp_id = baro_rawfolders$smp_id[i]) %>%
+      filter(!grepl("SRT", filepath, ignore.case = TRUE)) #Skip files from SRTs
+    foundfiles <- rbind(foundfiles, tempfiles)
+  }
+  
+  #################################
+  ####Error check - Found files?
+  #################################
+  if(nrow(foundfiles) == 0)
+  {
+    # There will be baro files always. If we find none, something is wrong
+    kill = TRUE
+    errorCode = 2
+  }
+
+  #Compute a variety of things relevant to the database
+  #First, whether the file is already in the database
+  filetable <- mutate(foundfiles, in_db = (filepath %in% fileswithdata$filepath)) %>% 
+    
+    #filter to only those files not in the database
+    filter(in_db == FALSE) %>%
+
+    #Find the first date in the files
+    mutate(firstDate = mdy_hms(firstDate(filepath), tz = "EST")) %>% 
+
+    #Filter to only the new stuff; new year, new "new stuff" 2019-01-01 changed to 2021-01-01 (change made 2023-01-17)  
+    filter(firstDate >= ymd("2019-01-01", tz = "EST")) %>% 
+
+    #Join them to the data frame showing the latest date for each baro in the database
+    left_join(latestdates, by = "smp_id") %>%
+
+    #Filter to only the files whose data are newer than the data in the database
+    #This is necessary because some sites have multiple baros, and the database uses only one
+    #So there can be files not in the rawfile table whose data is not relevant to us
+    filter(firstDate > latestdate)
+
+  #################################
+  ####Error check - Any new files?
+  #################################
+  if(nrow(foundfiles) == 0)
+  {
+    # If there are no new relevant files, we can stop now
+    kill = TRUE
+    errorCode = 0 #No error - this is a successful outcome
+    success <- TRUE
+  }  
+  
+  display_filetable <- transmute(filetable, filename = basename(filepath), smp_id, firstDate)
+  output_filetable <- transmute(filetable, smp_id, filepath, md5hash = sapply(X = filepath, FUN = function(x) as.character(md5(file(x)))))
+  
+  #sapply will give names to the elements of the column, which we don't want
+  names(output_filetable$md5hash) <- NULL
+  
+  # In case there is a duplicate. Not sure why this is possible but it is.
+  output_filetable <- output_filetable %>% unique()
+  
+```
+
+```{r Break Point 2 - No files found, echo = FALSE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+
+```{r Section R1: New Files Output, echo = FALSE, include = TRUE, eval = all(!kill, nrow(display_filetable) > 0)}
+    knitr::asis_output(paste0("### New Baro Files to add to `admin.tbl_baro_rawfile`: ",  nrow(display_filetable)))
+
+    kable(display_filetable)
+    
+  ###Log: Writing Baro Files
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 3,
+                           exit_code = NA,
+                           note = "Writing Baro Files")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+
+
+  tryCatch(
+
+    expr = {
+      dbWriteTable(marsDBCon, 
+        RPostgres::Id(schema = "admin", table = "tbl_baro_rawfile"), 
+        output_filetable, 
+        append= TRUE, 
+        row.names = FALSE)
+      success <<- TRUE
+      },
+    error = function(e) {
+      kill <<- TRUE
+      errorCode <<- 3
+      errorCodes$message[errorCode+1] <<- e$message #Error object is a list
+    }
+  )
+
+  #Writing file counts
+  if(!kill){ #If the write succeeded
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = nrow(output_filetable),
+                         type = "Files",
+                         hash = log_code)
+
+    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_writes_baro"), logMessage, append = TRUE, row.names=FALSE)
+  }
+
+```
+
+```{r Break Point 3 - Write Failure, echo = FALSE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+```{r Section 2 - Gathering the baro data, include = FALSE}
+
+  ###Log: Gathering Baro Data
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 4,
+                           exit_code = NA,
+                           note = "Gathering Baro Data")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+
+  #Collect the table of baro files again to find their UID
+  existingfiletable <- dbGetQuery(marsDBCon, "SELECT * FROM admin.tbl_baro_rawfile")
+  newfiles <- left_join(filetable, existingfiletable, by = "filepath") %>% select(filepath, baro_rawfile_uid)
+
+  #Gather the data from each new file
+  newdata <- data.frame(dtime = NULL, baro_psi = NULL, temp_f = NULL, baro_rawfile_uid = NULL)
+  
+  for(i in 1:nrow(newfiles)){
+    
+    if(nrow(newfiles) == 0) {break} #Don't do anything if there are no files
+    tempdata <- read.csv(newfiles$filepath[i], skip = 2)
+    if(nrow(tempdata) == 0) {next} #if the file is empty, skip it
+    tempdata <- tempdata[, 2:4]
+    colnames(tempdata) <- c("dtime", "baro_psi", "temp_f")
+    tempdata$dtime <- mdy_hms(tempdata$dtime)
+    tempdata$baro_rawfile_uid <- newfiles$baro_rawfile_uid[i]
+    tempdata <- tempdata[complete.cases(tempdata[, 1:3]),] #Purge NA rows from the final data set
+
+    newdata <- bind_rows(newdata, tempdata)
+}
+
+  #################################
+  ####Error check - Any new files?
+  #################################
+  if(nrow(newdata) == 0)
+  {
+    # This is possible if all the new files are empty
+    kill = TRUE
+    errorCode = 0 #No error - this is a successful outcome
+    success <- TRUE
+  } else{
+    display_newdata <- newdata %>% group_by(baro_rawfile_uid) %>% summarize(data_points = n(), first = first(dtime), last = last(dtime))
+  }
+```
+
+```{r Section 2.5, Writing to the baro table, include = TRUE, echo = FALSE, eval = all(!kill, nrow(newdata) > 0)}
+  knitr::asis_output(paste0("###The ", nrow(output_filetable), " new files contain ", nrow(newdata), " new data points"))
+
+  kable(display_newdata) 
+  
+   ###Log: Writing Baro Data
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 5,
+                           exit_code = NA,
+                           note = "Writing Baro Data")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+
+  #Create a data frame of file-by-file writing results
+  if(nrow(newdata) > 0){
+    newdata_results <- newdata %>% 
+      group_by(baro_rawfile_uid) %>% 
+      summarize(outcome = NA, data_points = n()) %>% 
+      left_join(newfiles, by = "baro_rawfile_uid") %>% 
+      transmute(baro_rawfile_uid, 
+                filename = paste(basename(dirname(filepath)), basename(filepath), sep = "/"), 
+                data_points, 
+                outcome)
+  } else {
+    newdata_results <- data.frame(NULL)
+  }
+
+
+  #Write each file's worth of data to the database one at a time
+  for(i in 1:nrow(newdata_results)){
+    if(nrow(newdata_results) == 0){break} #If there are no new data files, don't do anything
+    
+    newdata_currentfile <- filter(newdata, baro_rawfile_uid == newdata_results$baro_rawfile_uid[i])
+
+    if(nrow(newdata_currentfile) > 0){
+      tryCatch({newdata_results$outcome[i] <- dbWriteTable(marsDBCon, 
+          RPostgres::Id(schema = "data", table = "tbl_baro"), 
+          newdata_currentfile, 
+          append= TRUE, 
+          row.names = FALSE)
+        }, # append the data
+        error = function(e){
+          kill <<- TRUE
+          errorCode <<- 4
+          errorCodes$message[errorCode+1] <<- e$message #Error object is a list
+          success <<- TRUE
+        }
+      )
+    }
+    
+  }
+  
+  #Writing file counts
+  if(any(newdata_results$outcome) == TRUE){ #If any write succeeded
+    
+    write_outcomes <- group_by(newdata_results, outcome) %>% summarize(count = sum(data_points))
+    successes <- write_outcomes %>% filter(outcome == TRUE) %>% pull(count) %>% sum
+    failures <- write_outcomes %>% filter(outcome == FALSE) %>% pull(count) %>% sum
+
+    
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = successes,
+                         type = "Successes",
+                         hash = log_code)
+
+    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_writes_baro"), logMessage, append = TRUE, row.names=FALSE)
+    
+    logMessage <- data.frame(date = as.Date(today()),
+                         records = failures,
+                         type = "Failures",
+                         hash = log_code)
+
+    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_writes_baro"), logMessage, append = TRUE, row.names=FALSE)
+  }
+
+
+```
+
+```{r Break Point 4 - Write Failure, echo = FALSE, eval = all(kill, !success)}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+`r if(nrow(display_filetable > 0)){kable(newdata_results)}`
+
+# Script Results: `r ifelse(kill, ifelse(success, "SUCCESS", "FAILURE"), "SUCCESS")`
+## Exit Code: `r errorCode`
+## Exit Message: `r errorCodes$message[errorCode+1]`
+
+```{r Section 3 - Close DB connections and render this file, include = FALSE}
+
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+
+	#Close database connections
+	dbDisconnect(marsDBCon)
+```
