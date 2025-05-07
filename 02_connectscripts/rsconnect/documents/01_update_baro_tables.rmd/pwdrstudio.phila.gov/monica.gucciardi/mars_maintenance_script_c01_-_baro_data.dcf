@@ -1,0 +1,12 @@
+name: mars_maintenance_script_c01_-_baro_data
+title: MARS Maintenance Script C01 - Baro Data
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 483
+bundleId: 3173
+url: https://pwdrstudio.phila.gov/content/6a84f02d-839f-4199-b2b2-647c26e16972/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
