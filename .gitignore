@@ -1,8 +1,7 @@
+.REnviron
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
-*.html
-marsMaintenanceScripts.Rproj
-*/logs/*
-*.dcf
+*.rproj
+/01_localscripts/lib/*
