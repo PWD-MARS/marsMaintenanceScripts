@@ -1,9 +1,11 @@
 ---
-title: "Script Test"
+title: "Maintenance Script Report: Updating Rainfall Tables"
+author:
+- Monica Gucciardi
+- Updating rainfall tables
 output: html_document
 date: "`r Sys.Date()`"
-params:
-  database: "mars_testdeploy"
+
 ---
 ```{r setup, include=FALSE}
 #Database Stuff
@@ -98,11 +100,11 @@ centraldb <- tryCatch({
     
     #Debug mode, truncation of relevant tables to test i/o
     #Remove this before shipping, for the love of god
-    dbExecute(marsDBCon, "truncate table data.tbl_gage_rain restart identity;")
-    dbExecute(marsDBCon, "truncate table data.tbl_gage_event restart identity;")
-    dbExecute(marsDBCon, "truncate table admin.tbl_radar_rawfile;")
-    dbExecute(marsDBCon, "truncate table data.tbl_radar_rain restart identity;")
-    dbExecute(marsDBCon, "truncate table data.tbl_radar_event restart identity;")
+    # dbExecute(marsDBCon, "truncate table data.tbl_gage_rain restart identity;")
+    # dbExecute(marsDBCon, "truncate table data.tbl_gage_event restart identity;")
+    # dbExecute(marsDBCon, "truncate table admin.tbl_radar_rawfile;")
+    # dbExecute(marsDBCon, "truncate table data.tbl_radar_rain restart identity;")
+    # dbExecute(marsDBCon, "truncate table data.tbl_radar_event restart identity;")
 
   }
 
@@ -264,13 +266,14 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
                 #In practice, this means /path/to/foo_2025-04_bar.zip is replaced by 202504
                 #We want this because the CSV containing the data in 2025-04.zip is named 202504.csv
               #For more information, see https://regexr.com
-          datafile = paste0(yearmon, ".csv")) #Compose that CSV's file name
+          datafile = paste0(yearmon, ".csv"), #Compose that CSV's file name
+          outcome = NA) #Outcome of writing the file to DB
 
 ```
 
 # Radar Rainfall Data
 ### There are `r nrow(new_rawfiles)` months worth of radar rainfall data to import.
-### Since this is a test, we are only importing 1
+
 ```{r Section 4 - Reading radar data, include = FALSE, eval = all(nrow(new_rawfiles) > 0, !kill)}
 
   #Create the data frame that will iteratively hold all the new data
@@ -281,8 +284,8 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
 
   #Unzip the files
   dir.create(unzipFolder, showWarnings = FALSE)
-  #for(i in 1:nrow(new_rawfiles)){
-  for(i in 10){ #DEBUG: only process the tenth file (has a dst fallback, these introduce parsing corner cases to test)
+  for(i in 1:nrow(new_rawfiles)){
+  #for(i in 10){ #DEBUG: only process the tenth file (has a dst fallback, these introduce parsing corner cases to test)
     #Unzip the file
     file.copy(from = new_rawfiles$filepath[i], to = unzipFolder, overwrite = TRUE)
     unzip(new_rawfiles$filepath[i], exdir = unzipFolder, files = new_rawfiles$datafile[i]) #extract only the CSV we want
@@ -331,6 +334,13 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
         expr = {
           print(paste("Writing Radar Data File", new_rawfiles$datafile[i]))
           dbWriteTable(marsDBCon, RPostgres::Id(schema = "data", table = "tbl_radar_rain"), finalCurrentData, append= TRUE, row.names = FALSE)
+          
+          print(paste("Writing Radar Raw File Path", new_rawfiles$datafile[i]))
+          single_rawfile <- new_rawfiles[i, c("filepath", "yearmon")] %>%
+            mutate(filepath = basename(filepath)) #Must strip the dirname to be platform agnostic (local or connect)
+          
+          dbWriteTable(marsDBCon, RPostgres::Id(schema = "admin", table = "tbl_radar_rawfile"), single_rawfile, append= TRUE, row.names = FALSE)
+        
           radar_success <<- TRUE #Global assign because we are in a trycatch
           },
         error = function(e) {
@@ -339,9 +349,10 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
           kill <<- TRUE
         }
       )
+    new_rawfiles$outcome[i] <- radar_success
+    
   }
   
 ```
 
-### Radar Rainfall file `r new_rawfiles$datafile[i]` has `r ifelse(radar_success, print("successfully"), print("NOT successfully"))` been imported
-### It contained `r nrow(finalCurrentData)` data points
+`r kable(new_rawfiles)`
