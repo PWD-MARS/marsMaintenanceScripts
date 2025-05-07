@@ -1,3 +1,5 @@
+-- Drop the views 
+
 drop VIEW fieldwork.viw_previous_deployments;
 drop VIEW fieldwork.viw_inventory_sensors_full;
 drop VIEW fieldwork.viw_unmonitored_postcon_on;
@@ -14,8 +16,15 @@ drop VIEW fieldwork.viw_unmonitored_active_smps;
 drop VIEW fieldwork.viw_qaqc_deployments;
 drop VIEW fieldwork.viw_deployment_full_cwl;
 drop VIEW fieldwork.viw_deployment_full;
+drop VIEW fieldwork.viw_ow_plus_measurements;
 
-alter table fieldwork.tbl_deployment rename dtime_est to dtime;
+-- Commented out because these lines will result in an error if run more than once
+------------------------------------------------------------------------------------
+-- alter table fieldwork.tbl_deployment rename deployment_dtime_est to deployment_dtime;
+-- alter table fieldwork.tbl_deployment rename collection_dtime_est to collection_dtime;
+-- alter table fieldwork.tbl_well_measurements rename start_dtime_est to start_dtime;
+-- alter table fieldwork.tbl_well_measurements rename end_dtime_est to end_dtime;
+
 
 CREATE OR REPLACE VIEW fieldwork.viw_deployment_full
  AS
@@ -989,3 +998,39 @@ CREATE OR REPLACE VIEW fieldwork.viw_qaqc_deployments
    FROM fieldwork.viw_deployment_full
   WHERE viw_deployment_full.smp_id IS NOT NULL OR viw_deployment_full.site_name_lookup_uid IS NOT NULL
   ORDER BY viw_deployment_full.collection_dtime DESC;
+
+CREATE OR REPLACE VIEW fieldwork.viw_ow_plus_measurements
+ AS
+ SELECT ow.ow_uid,
+    w.well_measurements_uid,
+    ow.smp_id,
+    ow.ow_suffix,
+    ow.facility_id,
+    ow.site_name_lookup_uid,
+    snl.site_name,
+    w.well_depth_ft,
+    w.start_dtime,
+    w.end_dtime,
+    w.weir,
+    w.cap_to_hook_ft,
+    w.hook_to_sensor_ft,
+    fieldwork.fun_installation_height_ft(w.well_depth_ft, w.cap_to_hook_ft, w.hook_to_sensor_ft) AS installation_height_ft,
+    w.cap_to_hook_ft + w.hook_to_sensor_ft AS deployment_depth_ft,
+    w.cap_to_weir_ft,
+    w.cap_to_orifice_ft,
+    fieldwork.fun_weir_to_sensor_ft(w.weir, w.cap_to_hook_ft, w.hook_to_sensor_ft, w.cap_to_weir_ft) AS weir_to_sensor_ft,
+    fieldwork.fun_weir_to_orifice_ft(w.weir, w.cap_to_weir_ft, w.cap_to_orifice_ft) AS weir_to_orifice_ft,
+    fieldwork.fun_orifice_to_sensor_ft(w.weir, w.cap_to_hook_ft, w.hook_to_sensor_ft, w.cap_to_orifice_ft) AS orifice_to_sensor_ft,
+    w.cap_elev,
+    w.bottom_stone_elev,
+    w.orifice_elev,
+    w.notes,
+    sd.sumpdepth_ft,
+    od.orificedepth_ft,
+    w.sumpdepth_lookup_uid,
+    w.orifice_lookup_uid
+   FROM fieldwork.tbl_ow ow
+     LEFT JOIN fieldwork.tbl_well_measurements w ON ow.ow_uid = w.ow_uid
+     LEFT JOIN fieldwork.tbl_site_name_lookup snl ON snl.site_name_lookup_uid = ow.site_name_lookup_uid
+     LEFT JOIN fieldwork.viw_ow_sumpdepth sd ON w.well_measurements_uid = sd.well_measurements_uid
+     LEFT JOIN fieldwork.viw_ow_orifice_depth od ON w.well_measurements_uid = od.well_measurements_uid;
