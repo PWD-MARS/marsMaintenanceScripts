@@ -93,7 +93,7 @@
         accessdbCon <- odbcConnectAccess2007(accessdb_latestdates$filepath[i])
         accessdb_latestdates$dtime[i][is.na(accessdb_latestdates$dtime[i])] <- mdy('2/20/2001', tz = "America/New_York")
         accessdb_query <- paste0("select * from [", accessdb_latestdates$datatable[i], "] where [Standard Dtime] > #",accessdb_latestdates$dtime[i], "# ")
-        #print(accessdb_query)
+        print(accessdb_query)
         
         accessdb_newdata <- sqlQuery(accessdbCon, accessdb_query, as.is = TRUE) %>%
           select(dtime = 1, level_ft = ncol(.)) %>% #dtime is the first column, level is the last
@@ -490,34 +490,36 @@
                            note = "Writing data gaps")
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_ow"), logMessage, append = TRUE, row.names=FALSE)
   
-  
-  tryCatch(
+  if(nrow(datagaps) > 0){
     
-    expr = {
-      # delete values that have changed 
-      sql_string <- paste("delete from data.tbl_datagaps WHERE deployment_uid in (", paste(datagaps$deployment_uid, collapse = ","), ");")
-      dbExecute(marsDBCon, sql_string)
+    tryCatch(
       
-      # write the new data and data with updated values to DB
-      dbWriteTable(marsDBCon, Id(schema = "data", table = "tbl_datagaps"), datagaps, append= TRUE, row.names = FALSE )
-      success <<- TRUE
-    },
-    error = function(e) {
-      kill <<- TRUE
-      errorCode <<- 4
-      errorCodes$message[errorCode+1] <<- e$message #Error object is a list
-    }
-  )
-  
-  if(!kill)
-  {
-    #Writing file counts
-    logMessage <- data.frame(date = as.Date(today()),
-                             records = nrow(datagaps),
-                             type = "Data gaps",
-                             hash = log_code)
+      expr = {
+        # delete values that have changed 
+        sql_string <- paste("delete from data.tbl_datagaps WHERE deployment_uid in (", paste(datagaps$deployment_uid, collapse = ","), ");")
+        dbExecute(marsDBCon, sql_string)
+        
+        # write the new data and data with updated values to DB
+        dbWriteTable(marsDBCon, Id(schema = "data", table = "tbl_datagaps"), datagaps, append= TRUE, row.names = FALSE )
+        success <<- TRUE
+      },
+      error = function(e) {
+        kill <<- TRUE
+        errorCode <<- 4
+        errorCodes$message[errorCode+1] <<- e$message #Error object is a list
+      }
+    )
     
-    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_writes_ow"), logMessage, append = TRUE, row.names=FALSE) 
+    if(!kill)
+    {
+      #Writing file counts
+      logMessage <- data.frame(date = as.Date(today()),
+                               records = nrow(datagaps),
+                               type = "Data gaps",
+                               hash = log_code)
+      
+      dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_writes_ow"), logMessage, append = TRUE, row.names=FALSE) 
+    }
   }
 
 ## Break Point 6: Data Gap Write Error ----
@@ -528,3 +530,20 @@
     
     stop(message = errorCodes$message[errorCode+1])
   }
+
+## Script End
+  if(kill == FALSE){
+    print("# Script Results: Success\n")
+    print(paste("## Exit Code:", errorCode, "\n"))
+    print(paste("## Exit Message: ", errorCodes$message[errorCode+1]))
+    
+    ###Log: End
+    logMessage <- data.frame(date = as.Date(today()), 
+                             milestone = NA,
+                             exit_code = errorCode,
+                             hash = log_code,
+                             note = errorCodes$message[errorCode+1])
+    
+    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
+    
+  }  
