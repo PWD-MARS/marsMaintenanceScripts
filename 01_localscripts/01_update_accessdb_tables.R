@@ -120,6 +120,7 @@
   logMessage <- data.frame(date = as.Date(today()),
                            milestone = 2,
                            exit_code = NA,
+                           hash = logCode,
                            note = "Searching for AccessDB Files")
   
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -166,6 +167,7 @@
     logMessage <- data.frame(date = as.Date(today()), 
                              milestone = NA,
                              exit_code = errorCode,
+                             hash = logCode,
                              note = errorCodes$message[errorCode+1])
     
     dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -178,6 +180,7 @@
   logMessage <- data.frame(date = as.Date(today()),
                            milestone = 3,
                            exit_code = NA,
+                           hash = logCode,
                            note = "Filtering for New Databases")
   
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -238,6 +241,7 @@
     logMessage <- data.frame(date = as.Date(today()), 
                              milestone = NA,
                              exit_code = errorCode,
+                             hash = logCode,
                              note = errorCodes$message[errorCode+1])
     
     dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -250,6 +254,7 @@
   logMessage <- data.frame(date = as.Date(today()),
                            milestone = 4,
                            exit_code = NA,
+                           hash = logCode,
                            note = "Writing New AccessDB Databases")
   
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -295,6 +300,7 @@
     logMessage <- data.frame(date = as.Date(today()), 
                              milestone = NA,
                              exit_code = errorCode,
+                             hash = logCode,
                              note = errorCodes$message[errorCode+1])
     
     dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -307,6 +313,7 @@
   logMessage <- data.frame(date = as.Date(today()),
                            milestone = 5,
                            exit_code = NA,
+                           hash = logCode,
                            note = "Checking AccessDBs for Canonical Table Names")
   
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -350,6 +357,7 @@
   logMessage <- data.frame(date = as.Date(today()),
                            milestone = 6,
                            exit_code = NA,
+                           hash = logCode,
                            note = "Preparing Script Outputs")
   
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -409,6 +417,7 @@
     logMessage <- data.frame(date = as.Date(today()), 
                              milestone = NA,
                              exit_code = errorCode,
+                             hash = logCode,
                              note = errorCodes$message[errorCode+1])
     
     dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -422,6 +431,7 @@
   logMessage <- data.frame(date = as.Date(today()),
                            milestone = 7,
                            exit_code = NA,
+                           hash = logCode,
                            note = "Writing New Canonical Table Names")
   
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
@@ -457,9 +467,27 @@
     logMessage <- data.frame(date = as.Date(today()), 
                              milestone = NA,
                              exit_code = errorCode,
+                             hash = logCode,
                              note = errorCodes$message[errorCode+1])
     
     dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
     
     stop(message = errorCodes$message[errorCode+1])
+  }  
+
+## Script End
+  if(kill == FALSE){
+    print("# Script Results: Success\n")
+    print(paste("## Exit Code:", errorCode, "\n"))
+    print(paste("## Exit Message: ", errorCodes$message[errorCode+1]))
+    
+    ###Log: End
+    logMessage <- data.frame(date = as.Date(today()), 
+                             milestone = NA,
+                             exit_code = errorCode,
+                             hash = logCode,
+                             note = errorCodes$message[errorCode+1])
+    
+    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
+    
   }  
