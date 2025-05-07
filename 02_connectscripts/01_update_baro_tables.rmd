@@ -1,5 +1,5 @@
 ---
-title: "Worker Script Report: Update Baro Tables"
+title: "Maintenance Script Report: Update Baro Tables"
 author:
 - Monica Gucciardi
 - Updating baro and baro_rawfile
