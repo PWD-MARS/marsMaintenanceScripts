@@ -5,3 +5,4 @@
 .Ruserdata
 *.rproj
 /01_localscripts/lib/*
+*.html
