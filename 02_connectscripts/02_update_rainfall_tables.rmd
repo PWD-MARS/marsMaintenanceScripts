@@ -213,6 +213,8 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
           print(e$message)
           gage_success <<- FALSE
           kill <<- TRUE
+          errorCode <<- 5
+          errorCodes$message[errorCode+1] <<- e$message
         }
       )
     gage_outcomes$success[i] <- gage_success
@@ -233,7 +235,119 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
 
 ```
 
-```{r Section 3 - Gathering radar data, include = FALSE}
+```{r Break Point 2 - Gage Write Failure, echo = FALSE, include = TRUE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = logCode,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_rainfall"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
+```
+
+```{r Section 2 - Processing new rain events, include = FALSE, eval = !kill}
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = logCode,
+                           milestone = 4,
+                           exit_code = NA,
+                           note = "Processing Gage Events")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_rainfall"), logMessage, append = TRUE, row.names=FALSE)
+
+  #If there's no defined rain events, we need to pull the entire dataset.
+    #Otherwise, we need to only pull the new stuff.
+  emptytable <- dbGetQuery(marsDBCon, "select count(*) from data.viw_gage_event_latestdates") %>% pull(count)
+  
+  if(emptytable == 0){ #If we have no defined rain events (ie, we are recalculating everything), pull all the rain
+    rain_newdata <- dbGetQuery(marsDBCon, "select dtime, gage_uid, rainfall_in from data.tbl_gage_rain order by gage_uid, dtime asc")
+  } else { #Otherwise, grab all data from after the end of the latest event for each gage
+    #This captures both new data appended in the previous section, and any data that was clipped last time events were processed
+    rain_newdata <- dbGetQuery(marsDBCon, "select rg.gage_uid, rg.dtime, rg.rainfall_in from data.tbl_gage_rain rg left join data.viw_gage_event_latestdates rgel on rg.gage_uid = rgel.gage_uid where rg.dtime > rgel.dtime")
+  }
+
+  #Process the rain data into events, based on a 6 hour interevent time and a minimum depth of 0.1 inches
+  rain_newevents <- rain_newdata %>% 
+    group_by(gage_uid) %>%
+    arrange(dtime) %>% 
+    mutate(event_id = marsDetectEvents(dtime, rainfall_in)) %>%
+      #Drop the last "complete" event in case it straddles the month boundary
+      #It will get processed the when the next batch of data comes in
+    filter(!is.na(event_id), event_id != max(event_id, na.rm = TRUE)) %>%
+    group_by(gage_uid, event_id) %>%
+    summarize(eventdatastart = first(dtime),
+      eventdataend = last(dtime),
+      eventduration_hr = marsStormDuration_hr(dtime),
+      eventpeakintensity_inhr = marsStormPeakIntensity_inhr(dtime, rainfall_in),
+      eventavgintensity_inhr = marsStormAverageIntensity_inhr(dtime, rainfall_in),
+      eventdepth_in = marsStormDepth_in(rainfall_in)) %>%
+    select(-event_id)
+  
+
+  summary_newgageevents <- rain_newevents %>%
+    arrange(eventdatastart) %>%
+    group_by(gage_uid) %>%
+    summarize(count = n(),
+              earliest = first(eventdatastart),
+              latest = last(eventdatastart),
+              total_in = sum(eventdepth_in)) %>%
+    mutate(outcome = NA) #Write success
+  
+```
+
+# Rain Gage Events
+```{r Section XXXXX: New Gage Data Output, echo = FALSE, include = FALSE, eval = all(nrow(rain_newevents) > 0, !kill)}
+    knitr::asis_output(paste("### New Rain Gage Events to add to `data.tbl_gage_event`: ", nrow(rain_newevents), "Events"))
+  
+  ###Log: Start
+  logMessage <- data.frame(date = as.Date(today()), hash = logCode,
+                           milestone = 3,
+                           exit_code = NA,
+                           note = "Writing Gage Events")
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_rainfall"), logMessage, append = TRUE, row.names=FALSE)
+  
+  
+  for(i in 1:nrow(summary_newgageevents)){
+    singlegage_events <- filter(rain_newevents, gage_uid == summary_newgageevents$gage_uid[i]) %>%
+      arrange(eventdatastart) #Order it old to new
+    
+    tryCatch(
+  
+        expr = {
+          print(paste("Writing Events for Rain Gage", summary_newgageevents$gage_uid[i]))
+          dbWriteTable(marsDBCon, RPostgres::Id(schema = "data", table = "tbl_gage_event"), singlegage_events, append= TRUE, row.names = FALSE)
+          gageevent_success <<- TRUE #Global assign because we are in a trycatch
+          
+          #Log the successful transaction
+          logMessage <- data.frame(date = as.Date(today()),
+                     records = nrow(singlegage_events),
+                     type = paste("Events for Rain Gage", gage_outcomes$gage_uid[i]),
+                     hash = logCode)
+  
+          dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_writes_rainfall"), logMessage, append = TRUE, row.names=FALSE)
+        },
+        error = function(e) {
+          print(e$message)
+          gageevent_success <<- e$message
+          kill <<- TRUE
+        }
+      )
+    summary_newgageevents$outcome[i] <- gageevent_success
+    
+  }
+  kable(summary_newgageevents)
+```
+
+
+```{r Section 3 - Gathering radar data, include = FALSE, eval = !kill}
   ###Log: Start
   logMessage <- data.frame(date = as.Date(today()), hash = logCode,
                            milestone = 6,
@@ -246,13 +360,13 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
   #Assess raw files in our DB and H&H
   db_rawfiles <- dbGetQuery(marsDBCon, "select * from admin.tbl_radar_rawfile")
   hh_rawfiles <- list.files(radarFolder, pattern = "*\\.zip$") #List all the zip files in that folder
+  hh_rawfiles <- data.frame(filepath = hh_rawfiles,
+                            stringsAsFactors = FALSE)
 
   #Which files don't we have
-  new_rawfiles <- data.frame(filepath = paste(radarFolder, 
-                                              hh_rawfiles[!(hh_rawfiles %in% db_rawfiles$filepath)], 
-                                              sep = "/"), #Compose the full path to extract the files
-                             stringsAsFactors = FALSE) %>%
-    mutate(yearmon = str_replace(filepath, ".*(\\d{4})-(\\d{2}).*", "\\1\\2"), #Extract the YYYYMM yearmonth from the filename
+  new_rawfiles <- filter(hh_rawfiles, !(filepath %in% db_rawfiles$filepath)) %>%
+    mutate(filepath = paste(radarFolder, filepath, sep = "/"), #Compose the full path to extract the files %>%
+           yearmon = str_replace(filepath, ".*(\\d{4})-(\\d{2}).*", "\\1\\2"), #Extract the YYYYMM yearmonth from the filename
               #Regex notes:
               #() creates a capture group, referred to as \\1 and \\2 (capture group 1 and 2) in the replacement string
                 #\\d means "any digit 0-9", {4} and {2} means "4 (or 2) of the preceeding character"
@@ -267,12 +381,15 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
                 #We want this because the CSV containing the data in 2025-04.zip is named 202504.csv
               #For more information, see https://regexr.com
           datafile = paste0(yearmon, ".csv"), #Compose that CSV's file name
-          outcome = NA) #Outcome of writing the file to DB
+          import_outcome = NA, #Outcome of writing the file to DB
+          records = NA) #Number of data points in the file
 
 ```
 
 # Radar Rainfall Data
 ### There are `r nrow(new_rawfiles)` months worth of radar rainfall data to import.
+`r kable(new_rawfiles)`
+
 ```{r Section 4 - Reading radar data, include = FALSE, eval = all(nrow(new_rawfiles) > 0, !kill)}
 
   #The file import process works as follows: 
@@ -463,17 +580,39 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
             #We failed to write, so make note of that
             radar_success <<- e$message
             kill <<- TRUE
+            errorCode <<- 6
+            errorCodes$message[errorCode+1] <<- e$message
           }
         )
 
       }  else{ #If the validation failed
         radar_success <- "Validation Error"
         kill <- TRUE
+        errorCode <<- 6
+        errorCodes$message[errorCode+1] <<- paste("Radar data validation error for", new_rawfiles$filepath[i])
       }
   
     new_rawfiles$import_outcome[i] <- radar_success
     new_rawfiles$records[i] <- nrow(processedCurrentData)
   }
+
+```
+
+```{r Break Point 3 - Radar Write Failure, echo = FALSE, include = TRUE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = logCode,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+  
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_rainfall"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
 
 ```
 
@@ -487,35 +626,53 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
                            note = "Processing radar Events")
   
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_rainfall"), logMessage, append = TRUE, row.names=FALSE)
-
-  #If there's no defined rain events, we need to pull the entire dataset.
-    #Otherwise, we need to only pull the new stuff.
-  emptytable <- dbGetQuery(marsDBCon, "select count(*) from data.viw_radar_event_latestdates") %>% pull(count)
   
-  if(emptytable == 0){ #If we have no defined rain events (ie, we are recalculating everything), pull all the rain
-    rain_newdata <- dbGetQuery(marsDBCon, "select dtime, radar_uid, rainfall_in from data.tbl_radar_rain order by radar_uid, dtime asc")
-  } else { #Otherwise, grab all data from after the end of the latest event for each radar
-    #This captures both new data appended in the previous section, and any data that was clipped last time events were processed
-    rain_newdata <- dbGetQuery(marsDBCon, "select rg.radar_uid, rg.dtime, rg.rainfall_in from data.tbl_radar_rain rg left join data.viw_radar_event_latestdates rgel on rg.radar_uid = rgel.radar_uid where rg.dtime > rgel.dtime")
+  #Radar rainfall data is very large, so we will take the data one grid cell at a time
+  phillycells <- dbGetQuery(marsDBCon, "select radar_uid from admin.tbl_radar")
+  radar_newevents <- data.frame(NULL)
+
+  for(i in 1:nrow(phillycells)){
+    #Pull the whole cell's time series if there are no calculated events, otherwise pull the new stuff
+    emptytable <- dbGetQuery(marsDBCon, paste("select count(*) from data.viw_radar_event_latestdates where radar_uid =", 
+                                              phillycells$radar_uid[i])) %>% 
+                               pull(count)
+
+    if(emptytable == 0){ #There are no events for this cell, pull the whole time series
+      rain_newdata <- dbGetQuery(marsDBCon, paste("select dtime, radar_uid, rainfall_in from data.tbl_radar_rain where radar_uid=",
+                                                  phillycells$radar_uid[i],
+                                                  "order by radar_uid, dtime asc"))
+
+    } else{ #Some events have been calculated already, so only get the new stuff
+      rain_newdata <- dbGetQuery(marsDBCon, paste("select rg.radar_uid, rg.dtime, rg.rainfall_in from data.tbl_radar_rain rg left join data.viw_radar_event_latestdates rgel on rg.radar_uid = rgel.radar_uid where rg.dtime > rgel.dtime and rg.radar_uid =",
+                                                  phillycells$radar_uid[i],
+                                                  "order by radar_uid, dtime asc"))
+    }
+    
+    print(paste("Processing events for cell", phillycells$radar_uid[i]))
+    
+    #Process the rain data into events, based on a 6 hour interevent time and a minimum depth of 0.1 inches
+    cell_newevents <- rain_newdata %>% 
+      group_by(radar_uid) %>%
+      arrange(dtime) %>% 
+      mutate(event_id = marsDetectEvents(dtime, rainfall_in)) %>%
+        #Drop the last "complete" event in case it straddles the month boundary
+        #It will get processed the when the next batch of data comes in
+      filter(!is.na(event_id), event_id != max(event_id, na.rm = TRUE)) %>%
+      group_by(radar_uid, event_id) %>%
+      summarize(eventdatastart = first(dtime),
+        eventdataend = last(dtime),
+        eventduration_hr = marsStormDuration_hr(dtime),
+        eventpeakintensity_inhr = marsStormPeakIntensity_inhr(dtime, rainfall_in),
+        eventavgintensity_inhr = marsStormAverageIntensity_inhr(dtime, rainfall_in),
+        eventdepth_in = marsStormDepth_in(rainfall_in)) %>%
+      select(-event_id) %>%
+      ungroup
+    
+    print(paste(nrow(cell_newevents), "new events found for cell", phillycells$radar_uid[i]))
+    
+    radar_newevents <- rbind(radar_newevents, cell_newevents)
+  
   }
-
-  #Process the rain data into events, based on a 6 hour interevent time and a minimum depth of 0.1 inches
-  radar_newevents <- rain_newdata %>% 
-    group_by(radar_uid) %>%
-    arrange(dtime) %>% 
-    mutate(event_id = marsDetectEvents(dtime, rainfall_in)) %>%
-      #Drop the last "complete" event in case it straddles the month boundary
-      #It will get processed the when the next batch of data comes in
-    filter(!is.na(event_id), event_id != max(event_id, na.rm = TRUE)) %>%
-    group_by(radar_uid, event_id) %>%
-    summarize(eventdatastart = first(dtime),
-      eventdataend = last(dtime),
-      eventduration_hr = marsStormDuration_hr(dtime),
-      eventpeakintensity_inhr = marsStormPeakIntensity_inhr(dtime, rainfall_in),
-      eventavgintensity_inhr = marsStormAverageIntensity_inhr(dtime, rainfall_in),
-      eventdepth_in = marsStormDepth_in(rainfall_in)) %>%
-    select(-event_id)
-  
 
   summary_newradarevents <- radar_newevents %>%
     arrange(eventdatastart) %>%
@@ -555,7 +712,7 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
           #Log the successful transaction
           logMessage <- data.frame(date = as.Date(today()),
                      records = nrow(singleradar_events),
-                     type = paste("Events for Radar Grid Cell", radar_outcomes$radar_uid[i]),
+                     type = paste("Events for Radar Grid Cell", summary_newradarevents$radar_uid[i]),
                      hash = logCode)
   
           dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_writes_rainfall"), logMessage, append = TRUE, row.names=FALSE)
@@ -564,10 +721,30 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
           print(e$message)
           radarevent_success <<- e$message
           kill <<- TRUE
+          errorCode <<- 7
+          errorCodes$message[errorCode+1] <<- e$message
         }
       )
     summary_newradarevents$outcome[i] <- radarevent_success
     
   }
   kable(summary_newradarevents)
+```
+
+```{r Break Point 4 - Radar Event Failure, echo = FALSE, include = TRUE, eval = kill}
+
+  knitr::asis_output("# Script Results: Error\n")
+  knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+
+  ###Log: End
+  logMessage <- data.frame(date = as.Date(today()), hash = logCode,
+                           milestone = NA,
+                           exit_code = errorCode,
+                           note = errorCodes$message[errorCode+1])
+
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_rainfall"), logMessage, append = TRUE, row.names=FALSE)
+  
+  knitr::knit_exit()
+
 ```
