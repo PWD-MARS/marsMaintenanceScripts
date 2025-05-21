@@ -20,10 +20,10 @@ drop VIEW fieldwork.viw_ow_plus_measurements;
 
 -- Commented out because these lines will result in an error if run more than once
 ------------------------------------------------------------------------------------
--- alter table fieldwork.tbl_deployment rename deployment_dtime_est to deployment_dtime;
--- alter table fieldwork.tbl_deployment rename collection_dtime_est to collection_dtime;
--- alter table fieldwork.tbl_well_measurements rename start_dtime_est to start_dtime;
--- alter table fieldwork.tbl_well_measurements rename end_dtime_est to end_dtime;
+alter table fieldwork.tbl_deployment rename deployment_dtime_est to deployment_dtime;
+alter table fieldwork.tbl_deployment rename collection_dtime_est to collection_dtime;
+alter table fieldwork.tbl_well_measurements rename start_dtime_est to start_dtime;
+alter table fieldwork.tbl_well_measurements rename end_dtime_est to end_dtime;
 
 
 CREATE OR REPLACE VIEW fieldwork.viw_deployment_full

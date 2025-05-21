@@ -1,15 +1,15 @@
--- drop VIEW data.test_viw_gage_event_latestdates;
--- drop VIEW data.test_viw_gage_rain_latestdates;
--- drop VIEW data.test_viw_gage_rainfall;
--- drop VIEW data.test_viw_gwdata_latestdates;
--- drop VIEW data.test_viw_ow_leveldata_sumpcorrected;
--- drop VIEW data.test_viw_owdata_earliestdates;
--- drop VIEW data.test_viw_owdata_latestdates;
--- drop VIEW data.test_viw_radar_event_latestdates;
--- drop VIEW data.test_viw_radar_rain_latestdates;
--- drop VIEW data.test_viw_radar_rainfall;
--- drop VIEW data.test_viw_barodata_neighbors;
--- drop VIEW data.test_viw_barodata_smp;
+-- drop VIEW if exists data.test_viw_gage_event_latestdates;
+-- drop VIEW if exists data.test_viw_gage_rain_latestdates;
+-- drop VIEW if exists data.test_viw_gage_rainfall;
+-- drop VIEW if exists data.test_viw_gwdata_latestdates;
+-- drop VIEW if exists data.test_viw_ow_leveldata_sumpcorrected;
+-- drop VIEW if exists data.test_viw_owdata_earliestdates;
+-- drop VIEW if exists data.test_viw_owdata_latestdates;
+-- drop VIEW if exists data.test_viw_radar_event_latestdates;
+-- drop VIEW if exists data.test_viw_radar_rain_latestdates;
+-- drop VIEW if exists data.test_viw_radar_rainfall;
+-- drop VIEW if exists data.test_viw_barodata_neighbors;
+-- drop VIEW if exists data.test_viw_barodata_smp;
 
 -- Gage rainfall
 

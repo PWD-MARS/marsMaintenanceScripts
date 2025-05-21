@@ -1,3 +1,9 @@
+drop materialized view if exists data.mat_level_data_quarter;
+drop materialized view if exists data.mat_level_data_day;
+drop materialized view if exists data.mat_gw_data_quarter;
+drop materialized view if exists data.mat_gw_data_day;
+drop materialized view if exists data.mat_expl_qa_ow_leveldata;
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS data.mat_expl_qa_ow_leveldata
 TABLESPACE pg_default
 AS
