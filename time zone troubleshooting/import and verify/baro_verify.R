@@ -18,16 +18,16 @@ mars_deploy <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "mars_data",
+  dbname = "demo_deployment",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = NULL)
 
 #Pulling the old data, without coercion
-old_barodata <- dbGetQuery(mars_test, "select * from data.old_tbl_baro")
+old_barodata <- dbGetQuery(mars_test, "select * from data.tbl_baro")
 
 #Pulling the new data
-new_barodata <- dbGetQuery(mars_deploy, "select * from data.tbl_baro")
+new_barodata <- dbGetQuery(mars_deploy, "select * from data.test_tbl_baro")
 
 #We must...
 #Coerce the new data from America/New_York to EST, undoing the spring-forwards
@@ -37,7 +37,7 @@ new_barodata <- dbGetQuery(mars_deploy, "select * from data.tbl_baro")
 #And then we can compare the data
 
 #Coerce time zone
-new_barodata <- mutate(new_barodata, dtime_est = with_tz(dtime_local, tzone = "EST"))
+new_barodata <- mutate(new_barodata, dtime_est = with_tz(dtime, tzone = "EST"))
 
 #Bump the 59th second
 old_barodata <- old_barodata %>%
@@ -61,7 +61,7 @@ old_barodata <- filter(old_barodata, fast_redeploy_error == FALSE)
 #Prepare the time series for comparison
 #The primary keys will not match, so we will remove that field from both frames
 #The fields used to compose the FRE check in the old data will also be removed
-#The dtime_local field will be removed from the new data, since we are only concerned with the pre-spring-forwards data
+#The dtime field will be removed from the new data, since we are only concerned with the pre-spring-forwards data
 #Finally, the dtime_bumped in the old data will be renamed dtime_est so it can be compared to the new data
 
 #We will also sort the data, ordering them by ow_uid, and dtime_est within them
@@ -75,3 +75,4 @@ new_barodata <- new_barodata %>%
   arrange(baro_rawfile_uid, dtime_est)
 
 comp <- symdiff(old_barodata, new_barodata)
+

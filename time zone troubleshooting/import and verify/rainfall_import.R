@@ -10,7 +10,7 @@ mars <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "mars_data",
+  dbname = "demo_deployment",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = NULL)
@@ -29,7 +29,7 @@ centraldb <- dbPool(
 #Read the rain gage data from the H&H database
 hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>% 
   transmute(gage_uid = GaugeNo, 
-            dtime_local = DateTime, #Comes in as America/New York time zone
+            dtime = DateTime, #Comes in as America/New York time zone
             rainfall_in = round(Rainfall, 4)) %>%
   filter(!(gage_uid %in% c(36, 37))) #We don't track these ones! We need to change that someday.
 
@@ -61,8 +61,8 @@ dbWriteTable(mars, "tbl_gage_escrow", hhrainfall_gage, temporary = TRUE, overwri
   
   #If every check succeeds, append the escrow data into the main table
   if(all(rows_equal, sums_equal, sets_same)){
-    dbExecute(mars, "insert into data.test_tbl_gage_rain (gage_uid, dtime_local, rainfall_in)
-              select gage_uid, dtime_local, rainfall_in from tbl_gage_escrow")
+    dbExecute(mars, "insert into data.test_tbl_gage_rain (gage_uid, dtime, rainfall_in)
+              select gage_uid, dtime, rainfall_in from tbl_gage_escrow")
   }
 
 #S.3 Calculate Event Metadata
@@ -74,8 +74,8 @@ library(pwdgsi)
   #Tag rainfall time series with event markers
   mars_rain_tagged <- mars_rain %>% 
     group_by(gage_uid) %>%
-    arrange(dtime_local) %>% 
-    mutate(event_id = marsDetectEvents(dtime_local, rainfall_in)) %>%
+    arrange(dtime) %>% 
+    mutate(event_id = marsDetectEvents(dtime, rainfall_in)) %>%
     #Drop the last "complete" event in case it straddles the month boundary
     #It will get processed the when the next batch of data comes in
     filter(!is.na(event_id), event_id != max(event_id, na.rm = TRUE)) %>%
@@ -84,16 +84,16 @@ library(pwdgsi)
   rain_newevents <- mars_rain_tagged %>%
     group_by(gage_uid, event_id) %>%
     summarize(records = n(),
-              eventdatastart_local = first(dtime_local),
-              eventdataend_local = last(dtime_local),
-              eventduration_hr = marsStormDuration_hr(dtime_local),
-              eventpeakintensity_inhr = marsStormPeakIntensity_inhr(dtime_local, rainfall_in),
-              eventavgintensity_inhr = marsStormAverageIntensity_inhr(dtime_local, rainfall_in),
+              eventdatastart = first(dtime),
+              eventdataend = last(dtime),
+              eventduration_hr = marsStormDuration_hr(dtime),
+              eventpeakintensity_inhr = marsStormPeakIntensity_inhr(dtime, rainfall_in),
+              eventavgintensity_inhr = marsStormAverageIntensity_inhr(dtime, rainfall_in),
               eventdepth_in = marsStormDepth_in(rainfall_in)) %>%
     select(-event_id) %>%
     ungroup %>%
     rowwise %>%
-    mutate(md5hash = digest(paste(gage_uid, records, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in), algo = "md5"))
+    mutate(md5hash = digest(paste(gage_uid, records, eventdatastart, eventdataend, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in), algo = "md5"))
 
   #To verify that we have correctly calculated all of the rain, we will sum the 
     #total rain contained in marked events and the total rain outside of marked events
@@ -102,8 +102,8 @@ library(pwdgsi)
     #into the next batch of data
   mars_rain_verify <- mars_rain %>% 
     group_by(gage_uid) %>%
-    arrange(dtime_local) %>% 
-    mutate(event_id = marsDetectEvents(dtime_local, rainfall_in)) %>%
+    arrange(dtime) %>% 
+    mutate(event_id = marsDetectEvents(dtime, rainfall_in)) %>%
     #For verification, do not purge non-event rain
     #And instead of dropping the last event, set its ID to NA
     mutate(event_id = ifelse(event_id == max(event_id, na.rm = TRUE), NA, event_id)) %>%
@@ -126,14 +126,14 @@ library(pwdgsi)
   #Compute hashes
   mars_events_verify <- mars_events_verify %>%
     rowwise %>%
-    mutate(md5hash_verify = digest(paste(gage_uid, records, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in), algo = "md5")) %>%
+    mutate(md5hash_verify = digest(paste(gage_uid, records, eventdatastart, eventdataend, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in), algo = "md5")) %>%
     mutate(hashes_match = md5hash_verify == md5hash)
   
   table(mars_events_verify$hashes_match) #All true!
 
   if(all(mars_events_verify$hashes_match)){
-    dbExecute(mars, "insert into data.test_tbl_gage_event (gage_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in)
-              select gage_uid, eventdatastart_local, eventdataend_local, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in from tbl_event_escrow")
+    dbExecute(mars, "insert into data.test_tbl_gage_event (gage_uid, eventdatastart, eventdataend, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in)
+              select gage_uid, eventdatastart, eventdataend, eventduration_hr, eventpeakintensity_inhr, eventavgintensity_inhr, eventdepth_in from tbl_event_escrow")
   }
 
   

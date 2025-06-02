@@ -1,3 +1,24 @@
+drop VIEW if exists data.test_viw_gage_event_latestdates;
+drop VIEW if exists data.test_viw_gage_rain_latestdates;
+drop VIEW if exists data.test_viw_gage_rainfall;
+drop VIEW if exists data.test_viw_gwdata_latestdates;
+drop VIEW if exists data.test_viw_ow_leveldata_sumpcorrected;
+drop VIEW if exists data.test_viw_owdata_earliestdates;
+drop VIEW if exists data.test_viw_owdata_latestdates;
+drop VIEW if exists data.test_viw_radar_event_latestdates;
+drop VIEW if exists data.test_viw_radar_rain_latestdates;
+drop VIEW if exists data.test_viw_radar_rainfall;
+drop VIEW if exists data.test_viw_barodata_neighbors;
+drop VIEW if exists data.test_viw_barodata_smp;
+
+drop table if exists data.test_tbl_gage_rain;
+drop table if exists data.test_tbl_gage_event;
+drop table if exists data.test_tbl_gw_depthdata_raw;
+drop table if exists data.test_tbl_ow_leveldata_raw;
+drop table if exists data.test_tbl_radar_event;
+drop table if exists data.test_tbl_radar_rain;
+drop table if exists data.test_tbl_baro;
+
 -- Gage rainfall
 
 create table if not exists data.test_tbl_gage_rain

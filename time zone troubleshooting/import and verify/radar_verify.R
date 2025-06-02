@@ -21,14 +21,14 @@ marsDBCon <- tryCatch({
     drv = RPostgres::Postgres(),
     host = "PWDMARSDBS1",
     port = 5434,
-    dbname = "sandbox_dtime",
+    dbname = "demo_deployment",
     user= Sys.getenv("admin_uid"),
     password = Sys.getenv("admin_pwd"),
     timezone = NULL)},
   error = function(e){e})
 
 #Purge the data table so we can continually retest
-dbExecute(marsDBCon, "truncate table data.tbl_radar_rain restart identity;")
+dbExecute(marsDBCon, "truncate table data.test_tbl_radar_rain restart identity;")
 
 #H&H radar rainfall data files
 hh_rawfiles <- list.files(radarFolder, pattern = "*\\.zip$") #List all the zip files in that folder
@@ -60,9 +60,9 @@ phillycells <- dbGetQuery(marsDBCon, "select radar_uid from admin.tbl_radar")
 
 #Unzip the files
 dir.create(unzipFolder, showWarnings = FALSE)
-#for(i in 1:nrow(new_rawfiles)){
+for(i in 1:nrow(new_rawfiles)){
 
-  i <- 10 #DEBUG: only process the tenth file (has a dst fallback, these introduce parsing corner cases to test)
+  #i <- 10 #DEBUG: only process the tenth file (has a dst fallback, these introduce parsing corner cases to test)
 
   #Unzip the file
   file.copy(from = new_rawfiles$filepath[i], to = unzipFolder, overwrite = TRUE)
@@ -109,14 +109,14 @@ dir.create(unzipFolder, showWarnings = FALSE)
     select(dtime, radar_uid, rainfall_in)
 
   #Write the data to the table, to test for the uniqueness constraint validation
-  dbWriteTable(marsDBCon, RPostgres::Id(schema = "data", table = "tbl_radar_rain"), finalCurrentData, append= TRUE, row.names = FALSE)
+  dbWriteTable(marsDBCon, RPostgres::Id(schema = "data", table = "test_tbl_radar_rain"), finalCurrentData, append= TRUE, row.names = FALSE)
   #Succeeds!
 
 #S.2 Reread the data and validate it as identical
 
 #Read the data
-radardata_mars <- dbGetQuery(marsDBCon, "select * from data.tbl_radar_rain")
-  
+radardata_mars <- dbGetQuery(marsDBCon, "select * from data.test_tbl_radar_rain")
+
 #To validate the data, we will...
   # Count the rows of each data frame
   # Sum the rainfall values for each radar grid cell
@@ -124,17 +124,17 @@ radardata_mars <- dbGetQuery(marsDBCon, "select * from data.tbl_radar_rain")
 
 #Count the rows...
   rowsEqual <- nrow(radardata_mars) == nrow(finalCurrentData)
-  
+
 #Sum the rainfall for each grid cell
   fileTotals <- group_by(finalCurrentData, radar_uid) %>%
     summarize(fileTotal_in = sum(rainfall_in))
-  
+
   marsTotals <- group_by(radardata_mars, radar_uid) %>%
     summarize(marsTotal_in = sum(rainfall_in))
-  
+
   unitedTotals <- left_join(fileTotals, marsTotals) %>%
     mutate(equal = fileTotal_in == marsTotal_in)
-  
+
   totalsEqual <- all(unitedTotals$equal == TRUE)
 
 #Recompose ymd_hm and do a symdiff()
@@ -169,12 +169,12 @@ radardata_mars <- dbGetQuery(marsDBCon, "select * from data.tbl_radar_rain")
   raw_comparison <- currentdata %>%
     filter(radar_uid %in% phillycells$radar_uid) %>% #Only grid cells in philadelphia
     select(-tzone) #Drop the tzone column since mars_recomposed won't have one
-  
+
   differences <- symdiff(raw_comparison, mars_recomposed)
-  
+
   datasetsEqual <- nrow(differences) == 0
 
   if(all(rowsEqual == TRUE, totalsEqual == TRUE, datasetsEqual == TRUE)){
     print("Hooray!")
   }
-  
+}

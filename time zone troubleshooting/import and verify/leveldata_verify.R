@@ -9,7 +9,7 @@ mars_test <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "mars_testdeploy",
+  dbname = "demo_deployment",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = "EST") #To pull in time series data without force-coercing it to local time, we need to set the TZ to EST here
@@ -18,7 +18,7 @@ mars_deploy <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "mars_testdeploy",
+  dbname = "demo_deployment",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = NULL)
@@ -37,7 +37,7 @@ new_leveldata <- dbGetQuery(mars_deploy, "select * from data.test_tbl_ow_levelda
 #And then we can compare the data
 
 #Coerce time zone
-new_leveldata <- mutate(new_leveldata, dtime_est = with_tz(dtime_local, tzone = "EST"))
+new_leveldata <- mutate(new_leveldata, dtime_est = with_tz(dtime, tzone = "EST"))
 
 #Bump the 59th second
 old_leveldata <- old_leveldata %>%
@@ -46,6 +46,7 @@ old_leveldata <- old_leveldata %>%
 
 #Fast redeploy errors are calculated on a per-ow_uid basis, so we need to do a group operation
 old_leveldata <- old_leveldata %>% group_by(ow_uid) %>%
+  arrange(dtime_bumped, ow_leveldata_raw_uid) %>%
   mutate(fast_redeploy_error = duplicated(dtime_bumped)) %>%
   ungroup()
 
@@ -61,7 +62,7 @@ old_leveldata <- filter(old_leveldata, fast_redeploy_error == FALSE)
 #Prepare the time series for comparison
   #The primary keys will not match, so we will remove that field from both frames
   #The fields used to compose the FRE check in the old data will also be removed
-  #The dtime_local field will be removed from the new data, since we are only concerned with the pre-spring-forwards data
+  #The dtime field will be removed from the new data, since we are only concerned with the pre-spring-forwards data
   #Finally, the dtime_bumped in the old data will be renamed dtime_est so it can be compared to the new data
 
   #We will also sort the data, ordering them by ow_uid, and dtime_est within them
@@ -74,7 +75,12 @@ new_leveldata <- new_leveldata %>%
   select(ow_uid, dtime_est, level_ft, date_added) %>%
   arrange(ow_uid, dtime_est)
 
-comp <- symdiff(old_leveldata, new_leveldata)
+comp <- symdiff(old_leveldata, new_leveldata) #06-02-2025: 
+  #a single data point at ow_uid 829 on 2022-10-01 04:45:00 differs very slightly between the two sets
+  # 0.253 ft vs 0.251 ft, and an import date of 2023-01-20 vs 2023-01-27
+  # This appears to be a fast_redeploy_error handling bug, where it is randomizing the discard instead of picking it deterministically
+  # Initial attempts to chase this bug down have not been successful
+  # I, Monica Gucciardi, am making the executive decision that this single data point doesn't matter for the sake of this migration
 
 #S.2 Verifying groundwater data
 #Pulling the old data, without coercion
@@ -91,7 +97,7 @@ new_depthdata <- dbGetQuery(mars_deploy, "select * from data.test_tbl_gw_depthda
 #And then we can compare the data
 
 #Coerce time zone
-new_depthdata <- mutate(new_depthdata, dtime_est = with_tz(dtime_local, tzone = "EST"))
+new_depthdata <- mutate(new_depthdata, dtime_est = with_tz(dtime, tzone = "EST"))
 
 #Bump the 59th second
 old_depthdata <- old_depthdata %>%
@@ -115,7 +121,7 @@ old_depthdata <- filter(old_depthdata, fast_redeploy_error == FALSE)
 #Prepare the time series for comparison
 #The primary keys will not match, so we will remove that field from both frames
 #The fields used to compose the FRE check in the old data will also be removed
-#The dtime_local field will be removed from the new data, since we are only concerned with the pre-spring-forwards data
+#The dtime field will be removed from the new data, since we are only concerned with the pre-spring-forwards data
 #Finally, the dtime_bumped in the old data will be renamed dtime_est so it can be compared to the new data
 
 #We will also sort the data, ordering them by ow_uid, and dtime_est within them

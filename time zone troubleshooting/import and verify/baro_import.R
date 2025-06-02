@@ -18,7 +18,7 @@ mars_deploy <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "sandbox_dtime",
+  dbname = "demo_deployment",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = NULL)
