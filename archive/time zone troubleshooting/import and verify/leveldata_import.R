@@ -18,7 +18,7 @@ mars_deploy <- dbPool(
   drv = RPostgres::Postgres(),
   host = "PWDMARSDBS1",
   port = 5434,
-  dbname = "demo_deployment",
+  dbname = "mars_prod",
   user= Sys.getenv("admin_uid"),
   password = Sys.getenv("admin_pwd"),
   timezone = NULL)
@@ -91,4 +91,4 @@ mars_deploy <- dbPool(
     dbWriteTable(mars_deploy, RPostgres::Id(schema = "data", table = "test_tbl_gw_depthdata_raw"), file_depthdata, append = TRUE, row.names=FALSE)
     
   }
-  '
+  

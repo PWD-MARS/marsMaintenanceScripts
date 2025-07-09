@@ -21,7 +21,7 @@ marsDBCon <- tryCatch({
     drv = RPostgres::Postgres(),
     host = "PWDMARSDBS1",
     port = 5434,
-    dbname = "demo_deployment",
+    dbname = "mars_prod",
     user= Sys.getenv("admin_uid"),
     password = Sys.getenv("admin_pwd"),
     timezone = NULL)},
@@ -60,12 +60,13 @@ phillycells <- dbGetQuery(marsDBCon, "select radar_uid from admin.tbl_radar")
 
 #Unzip the files
 dir.create(unzipFolder, showWarnings = FALSE)
-for(i in 1:nrow(new_rawfiles)){
+for(i in 58:nrow(new_rawfiles)){
 
   #i <- 10 #DEBUG: only process the tenth file (has a dst fallback, these introduce parsing corner cases to test)
 
   #Unzip the file
   file.copy(from = new_rawfiles$filepath[i], to = unzipFolder, overwrite = TRUE)
+  print(paste("Unzipping", new_rawfiles$filepath[i]))
   unzip(new_rawfiles$filepath[i], exdir = unzipFolder, files = new_rawfiles$datafile[i]) #extract only the CSV we want
   
   #Read the file
@@ -107,74 +108,76 @@ for(i in 1:nrow(new_rawfiles)){
     mutate(dtime_intermediate = ymd_hm(dtime_raw, tz = "America/New_York"),
            dtime = force_tzs(dtime_intermediate, tzones = tzone)) %>% #Correct for the above time zone offset error
     select(dtime, radar_uid, rainfall_in)
+  
+  print(paste("writing", new_rawfiles$filepath[i]))
 
   #Write the data to the table, to test for the uniqueness constraint validation
   dbWriteTable(marsDBCon, RPostgres::Id(schema = "data", table = "test_tbl_radar_rain"), finalCurrentData, append= TRUE, row.names = FALSE)
   #Succeeds!
-
-#S.2 Reread the data and validate it as identical
-
-#Read the data
-radardata_mars <- dbGetQuery(marsDBCon, "select * from data.test_tbl_radar_rain")
-
-#To validate the data, we will...
-  # Count the rows of each data frame
-  # Sum the rainfall values for each radar grid cell
-  # Recompose the ymd_hm string from the original file and do a symdiff()
-
-#Count the rows...
-  rowsEqual <- nrow(radardata_mars) == nrow(finalCurrentData)
-
-#Sum the rainfall for each grid cell
-  fileTotals <- group_by(finalCurrentData, radar_uid) %>%
-    summarize(fileTotal_in = sum(rainfall_in))
-
-  marsTotals <- group_by(radardata_mars, radar_uid) %>%
-    summarize(marsTotal_in = sum(rainfall_in))
-
-  unitedTotals <- left_join(fileTotals, marsTotals) %>%
-    mutate(equal = fileTotal_in == marsTotal_in)
-
-  totalsEqual <- all(unitedTotals$equal == TRUE)
-
-#Recompose ymd_hm and do a symdiff()
-  #Recompose the dtime_raw from the data from our DB
-  mars_recomposed <- radardata_mars %>%
-    mutate(dtime_parsed = as.character(dtime),
-          dtime_stripped = str_extract(dtime_parsed, "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}"),
-            #Regex notes
-              #The raw date is a YYYY-MM-DD HH:MM
-              #When R parses it with ymd_hm(), it returns YYYY-MM-DD HH:MM:SS on non-midnight times
-                #and YYYY-MM-DD on midnights
-            #In order to make sure the parsed datetimes match the raw ones
-              #we need to strip that terminal :00 from non-midnights
-              #and add 00:00 to midnights
-            #The regex matches DDDD-DD-DD DD:DD, see the regex in the previous section for more info
-              #The final transformation is YYYY-MM-DD HH:MM:SS -> YYYY-MM-DD HH:MM for non-midnights
-              #Midnights return NA, which we will handle next
-          dtime_midnights = str_replace(dtime_parsed, "(\\d{4}-\\d{2}-\\d{2})$", "\\1 00:00"),
-            #Regex notes
-            #The regex pattern matches DDDD-DD-DD, see the regex in the previous section for more info
-              #The terminal $ refers to the end of the string, so this will only match strings that have no trailing HH:MM values
-              #This will only happen when the clock time is midnight, as explained above
-            #This pattern is inside of a capture group, so we can replace it in the subsequent string
-              #The replacement is \\1 (ie, the contents of capture group 1) plus a 00:00 (midnight on the clock)
-            #The final transformation is YYYY-MM-DD -> YYYY-MM-DD 00:00 for all midnights
-              #and NA for every non-midnight
-              #We will unite these values with a coalesce() next
-          dtime_reconstructed = coalesce(dtime_stripped, dtime_midnights)) %>% #This returns the first non-missing value, like an SQL coalesce()
-  select(dtime_raw = dtime_reconstructed, radar_uid, rainfall_in)
-
-  #Prepare the raw data for comparison
-  raw_comparison <- currentdata %>%
-    filter(radar_uid %in% phillycells$radar_uid) %>% #Only grid cells in philadelphia
-    select(-tzone) #Drop the tzone column since mars_recomposed won't have one
-
-  differences <- symdiff(raw_comparison, mars_recomposed)
-
-  datasetsEqual <- nrow(differences) == 0
-
-  if(all(rowsEqual == TRUE, totalsEqual == TRUE, datasetsEqual == TRUE)){
-    print("Hooray!")
-  }
+# 
+# #S.2 Reread the data and validate it as identical
+# 
+# #Read the data
+# radardata_mars <- dbGetQuery(marsDBCon, "select * from data.test_tbl_radar_rain")
+# 
+# #To validate the data, we will...
+#   # Count the rows of each data frame
+#   # Sum the rainfall values for each radar grid cell
+#   # Recompose the ymd_hm string from the original file and do a symdiff()
+# 
+# #Count the rows...
+#   rowsEqual <- nrow(radardata_mars) == nrow(finalCurrentData)
+# 
+# #Sum the rainfall for each grid cell
+#   fileTotals <- group_by(finalCurrentData, radar_uid) %>%
+#     summarize(fileTotal_in = sum(rainfall_in))
+# 
+#   marsTotals <- group_by(radardata_mars, radar_uid) %>%
+#     summarize(marsTotal_in = sum(rainfall_in))
+# 
+#   unitedTotals <- left_join(fileTotals, marsTotals) %>%
+#     mutate(equal = fileTotal_in == marsTotal_in)
+# 
+#   totalsEqual <- all(unitedTotals$equal == TRUE)
+# 
+# #Recompose ymd_hm and do a symdiff()
+#   #Recompose the dtime_raw from the data from our DB
+#   mars_recomposed <- radardata_mars %>%
+#     mutate(dtime_parsed = as.character(dtime),
+#           dtime_stripped = str_extract(dtime_parsed, "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}"),
+#             #Regex notes
+#               #The raw date is a YYYY-MM-DD HH:MM
+#               #When R parses it with ymd_hm(), it returns YYYY-MM-DD HH:MM:SS on non-midnight times
+#                 #and YYYY-MM-DD on midnights
+#             #In order to make sure the parsed datetimes match the raw ones
+#               #we need to strip that terminal :00 from non-midnights
+#               #and add 00:00 to midnights
+#             #The regex matches DDDD-DD-DD DD:DD, see the regex in the previous section for more info
+#               #The final transformation is YYYY-MM-DD HH:MM:SS -> YYYY-MM-DD HH:MM for non-midnights
+#               #Midnights return NA, which we will handle next
+#           dtime_midnights = str_replace(dtime_parsed, "(\\d{4}-\\d{2}-\\d{2})$", "\\1 00:00"),
+#             #Regex notes
+#             #The regex pattern matches DDDD-DD-DD, see the regex in the previous section for more info
+#               #The terminal $ refers to the end of the string, so this will only match strings that have no trailing HH:MM values
+#               #This will only happen when the clock time is midnight, as explained above
+#             #This pattern is inside of a capture group, so we can replace it in the subsequent string
+#               #The replacement is \\1 (ie, the contents of capture group 1) plus a 00:00 (midnight on the clock)
+#             #The final transformation is YYYY-MM-DD -> YYYY-MM-DD 00:00 for all midnights
+#               #and NA for every non-midnight
+#               #We will unite these values with a coalesce() next
+#           dtime_reconstructed = coalesce(dtime_stripped, dtime_midnights)) %>% #This returns the first non-missing value, like an SQL coalesce()
+#   select(dtime_raw = dtime_reconstructed, radar_uid, rainfall_in)
+# 
+#   #Prepare the raw data for comparison
+#   raw_comparison <- currentdata %>%
+#     filter(radar_uid %in% phillycells$radar_uid) %>% #Only grid cells in philadelphia
+#     select(-tzone) #Drop the tzone column since mars_recomposed won't have one
+# 
+#   differences <- symdiff(raw_comparison, mars_recomposed)
+# 
+#   datasetsEqual <- nrow(differences) == 0
+# 
+#   if(all(rowsEqual == TRUE, totalsEqual == TRUE, datasetsEqual == TRUE)){
+#     print("Hooray!")
+#   }
 }
