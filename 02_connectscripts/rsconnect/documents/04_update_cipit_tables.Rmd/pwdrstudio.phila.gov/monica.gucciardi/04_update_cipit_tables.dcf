@@ -1,0 +1,12 @@
+name: 04_update_cipit_tables
+title: 04_update_cipit_tables
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 525
+bundleId: 3336
+url: https://pwdrstudio.phila.gov/content/86e7674c-9821-4975-bcb5-27bf774871fe/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

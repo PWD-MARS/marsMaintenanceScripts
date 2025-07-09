@@ -43,12 +43,12 @@ locationCheck <- list.files("/media/mounts/gsi-monitoring/02 GSI Monitoring Site
 
 if(length(locationCheck) == 0){ 
   #We are running locally (ie debugging/developing)
-  sitefolder <- "//pwdoows/oows/watershed sciences/gsi monitoring/02 gsi monitoring sites"
-  otherfolder <- "/media/mounts/gsi-monitoring/02 gsi monitoring sites" #For verifying filepaths in an agnostic way
+  sitefolder <- "//pwdoows/oows/watershed sciences/gsi monitoring/02 gsi monitoring sites/"
+  otherfolder <- "/media/mounts/gsi-monitoring/02 gsi monitoring sites/" #For verifying filepaths in an agnostic way
 } else{
   #We are running on Connect
-  sitefolder <- "/media/mounts/gsi-monitoring/02 gsi monitoring sites"
-  otherfolder <- "//pwdoows/oows/watershed sciences/gsi monitoring/02 gsi monitoring sites" #For verifying filepaths in an agnostic way
+  sitefolder <- "/media/mounts/gsi-monitoring/02 gsi monitoring sites/"
+  otherfolder <- "//pwdoows/oows/watershed sciences/gsi monitoring/02 gsi monitoring sites/" #For verifying filepaths in an agnostic way
 }
 
 
@@ -62,7 +62,7 @@ marsDBCon <- dbPool(
     drv = RPostgres::Postgres(),
     host = "PWDMARSDBS1",
     port = 5434,
-    dbname = "sandbox_dtime",
+    dbname = "mars_prod",
     user= Sys.getenv("admin_uid"),
     password = Sys.getenv("admin_pwd"),
     timezone = NULL)
@@ -85,6 +85,19 @@ marsDBCon <- dbPool(
       temp <- temp[, 2:4]
       colnames(temp) <- c("dtime", "pres_psi", "temp_f")
       return(temp$dtime[1])
+    })
+    names(dates) <- NULL
+    return(dates)
+  }
+  
+  #lastDate function reads a file and finds the last date of the file
+  lastDate <- function(datafile){
+    dates <- sapply(datafile, FUN = function(x){
+      temp <- read.csv(x, skip = 2)
+      temp <- temp[, 2:4]
+      temp <- temp[complete.cases(temp), ]
+      colnames(temp) <- c("dtime", "pres_psi", "temp_f")
+      return(temp$dtime[nrow(temp)])
     })
     names(dates) <- NULL
     return(dates)
@@ -114,7 +127,7 @@ marsDBCon <- dbPool(
 
   #Fetch all host folders for baro data
   baro_rawfolders <- dbGetQuery(marsDBCon, "SELECT * FROM admin.tbl_baro_rawfolder") %>%
-    mutate(folderpath = paste(sitefolder, folderpath, sep = "/"))
+    mutate(folderpath = paste0(sitefolder, folderpath))
     
 
   #Fetch all distinct baro_rawfile_uids from the baro table, to guard against files existing in baro_rawfile but not in baro
@@ -162,10 +175,11 @@ marsDBCon <- dbPool(
     filter(in_db == FALSE) %>%
 
     #Find the first date in the files
-    mutate(firstDate = mdy_hms(firstDate(filepath), tz = "America/New_York")) %>%
+    mutate(firstDate = mdy_hms(firstDate(filepath), tz = "America/New_York"),
+           lastDate = mdy_hms(lastDate(filepath), tz = "America/New_York")) %>%
 
     #Filter to only the new stuff; new year, new "new stuff" 2019-01-01 changed to 2021-01-01 (change made 2023-01-17)
-    filter(firstDate >= ymd("2019-01-01", tz = "America/New_York")) %>%
+    filter(firstDate >= ymd("2021-01-01", tz = "America/New_York")) %>%
 
     #Join them to the data frame showing the latest date for each baro in the database
     left_join(latestdates, by = "smp_id") %>%
@@ -173,7 +187,7 @@ marsDBCon <- dbPool(
     #Filter to only the files whose data are newer than the data in the database
     #This is necessary because some sites have multiple baros, and the database uses only one
     #So there can be files not in the rawfile table whose data is not relevant to us
-    filter(firstDate > latestdate)
+    filter(firstDate > latestdate | lastDate > latestdate)
 
   #################################
   ####Error check - Any new files?
@@ -302,12 +316,13 @@ for(i in 1:nrow(newfiles)){
   if(nrow(tempdata) == 0) {next} #if the file is empty, skip it
   tempdata <- tempdata[, 2:4]
   colnames(tempdata) <- c("dtime", "baro_psi", "temp_f")
-  tempdata$dtime <- mdy_hms(tempdata$dtime)
+  tempdata$dtime <- mdy_hms(tempdata$dtime, tz = "America/New_York")
   tempdata$baro_rawfile_uid <- newfiles$baro_rawfile_uid[i]
   tempdata <- tempdata[complete.cases(tempdata[, 1:3]),] #Purge NA rows from the final data set
   
   newdata <- bind_rows(newdata, tempdata)
 }
+
 
 #################################
 ####Error check - Any new files?
@@ -319,6 +334,14 @@ if(nrow(newdata) == 0)
   errorCode = 0 #No error - this is a successful outcome
   success <- TRUE
 } else{
+  
+  #Make sure there are no duplicate data entries
+  newdata <- newdata %>%
+    left_join(select(existingfiletable, baro_rawfile_uid, smp_id)) %>%
+    left_join(select(latestdates, smp_id, latestdate)) %>%
+    filter(dtime > latestdate) %>%
+    select(dtime, baro_psi, temp_f, baro_rawfile_uid)
+  
   display_newdata <- newdata %>% group_by(baro_rawfile_uid) %>% summarize(data_points = n(), first = first(dtime), last = last(dtime))
 }
 ```
