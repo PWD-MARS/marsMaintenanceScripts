@@ -20,13 +20,14 @@
   library(digest)
   options(stringsAsFactors=FALSE)
   
-  errorCodes <- data.frame(code = 0:5,
+  errorCodes <- data.frame(code = 0:6,
                            message = c("Execution successful.",
                                        "Could not connect to Postgres DB. Is Postgres down?",
                                        NA, #Error from TryCatch will be used
                                        NA, #Error from TryCatch will be used
                                        NA,  #Error from TryCatch will be used
-                                       NA  #Error from TryCatch will be used
+                                       NA,  #Error from TryCatch will be used
+                                       NA
                            ), stringsAsFactors=FALSE)
   
   kill = FALSE
@@ -41,7 +42,7 @@
       drv = RPostgres::Postgres(),
       host = "PWDMARSDBS1",
       port = 5434,
-      dbname = "sandbox_dtime",
+      dbname = "mars_prod",
       user= Sys.getenv("admin_uid"),
       password = Sys.getenv("admin_pwd"),
       timezone = NULL)},
