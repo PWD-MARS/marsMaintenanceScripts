@@ -6,3 +6,4 @@
 *.rproj
 /01_localscripts/lib/*
 *.html
+*.pgpass
