@@ -56,12 +56,6 @@ This is otherwise unrelated to the issue at hand. The following code works local
   smp_loc$lon_wgs84 %>% as.numeric %>% round(4) -> smp_loc$lon_wgs84
   smp_loc$lat_wgs84 %>% as.numeric %>% round(4) -> smp_loc$lat_wgs84
 
-  bumpout <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWIBUMPOUT", quiet = TRUE)) %>% 
-    st_set_crs(2272) %>% st_transform(4326) %>% #Convert from PA State Plane to WGS 1984
-    st_centroid %>% filter(!is.na(SMP_ID)) %>% transmute(smp_id = gsub("\\s", "", SMP_ID)) %>%
-    filter(!(grepl("[A-z]", smp_id))) %>% #No A-Z characters permitted. Upper and lower case.
-    filter(!(smp_id %in% smp_loc$smp_id)) %>%
-    {data.frame(st_coordinates(.), .$smp_id)} %>%
-    select(smp_id = 3, lon_wgs84 = 1, lat_wgs84 = 2)
+  bumpout <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWIBUMPOUT", quiet = TRUE))
 ```
 
