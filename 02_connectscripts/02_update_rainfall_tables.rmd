@@ -364,7 +364,7 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
                             stringsAsFactors = FALSE)
 
   #Which files don't we have
-  new_rawfiles <- filter(hh_rawfiles, !(filepath %in% db_rawfiles$filepath)) %>%
+  new_rawfiles <- filter(hh_rawfiles, !(basename(filepath) %in% db_rawfiles$filepath)) %>%
     mutate(filepath = paste(radarFolder, filepath, sep = "/"), #Compose the full path to extract the files %>%
            yearmon = str_replace(filepath, ".*(\\d{4})-(\\d{2}).*", "\\1\\2"), #Extract the YYYYMM yearmonth from the filename
               #Regex notes:
@@ -560,7 +560,7 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
             #Write the data
             print(paste("Writing Radar Data File", basename(new_rawfiles$filepath[i])))
             dbExecute(marsDBCon, "insert into data.tbl_radar_rain (radar_uid, dtime, rainfall_in)
-              select radar_uid, dtime, rainfall_in from data.tbl_radar_escrow")
+              select radar_uid, dtime, rainfall_in where rainfall_in <> 0 from data.tbl_radar_escrow")
 
             #Write the rawfile to the rawfile table so we don't try to import it again
             dbWriteTable(marsDBCon, RPostgres::Id(schema = "admin", table = "tbl_radar_rawfile"), rawfile, append= TRUE, row.names = FALSE)
