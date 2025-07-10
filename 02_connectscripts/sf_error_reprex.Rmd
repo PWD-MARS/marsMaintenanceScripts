@@ -1,0 +1,67 @@
+---
+title: "SF segfault reprex"
+output: html_document
+date: "2025-07-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Section 0: Preamble ----
+#GIS stuff
+library(sf)
+library(s2)
+
+#Dplyr stuff
+library(magrittr)
+library(tidyverse)
+
+#Database Stuff
+library(odbc)
+library(pool)
+
+#Other stuff
+library(knitr)
+library(digest)
+options(stringsAsFactors=FALSE)
+
+###Section 0.1: Check parameter validity
+
+#ODBC String for GIS DB
+dsn_infra_pub <- paste0("MSSQL:server=PWDGISSQL;",
+                        "database=GIS_APPS;",
+                        "UID=", Sys.getenv("gis_uid"), ";",
+                        "PWD=", Sys.getenv("gis_pwd"), ";")
+
+
+marsDBCon <- dbPool(
+  drv = RPostgres::Postgres(),
+  host = "PWDMARSDBS1",
+  port = 5434,
+  dbname = "mars_prod",
+  user= Sys.getenv("admin_uid"),
+  password = Sys.getenv("admin_pwd"),
+  timezone = NULL)
+
+```
+
+suppressWarnings hides an unrelated warning from a driver bug. It's a method Tyler endorses to interact with spatial sources via st_read
+The warning is: Warning: GDAL Error 1: Error initializing the metadata tables : [37000][Microsoft][ODBC SQL Server Driver][SQL Server]CREATE TABLE permission denied in database 'GIS_APPS'
+
+This is otherwise unrelated to the issue at hand. The following code works locally and fails on Connect with a segfault.
+
+```{r st_read segfault when reading from a database}
+
+  smp_loc <- dbGetQuery(marsDBCon, "SELECT * FROM admin.tbl_smp_loc")
+  smp_loc$lon_wgs84 %>% as.numeric %>% round(4) -> smp_loc$lon_wgs84
+  smp_loc$lat_wgs84 %>% as.numeric %>% round(4) -> smp_loc$lat_wgs84
+
+  bumpout <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWIBUMPOUT", quiet = TRUE)) %>% 
+    st_set_crs(2272) %>% st_transform(4326) %>% #Convert from PA State Plane to WGS 1984
+    st_centroid %>% filter(!is.na(SMP_ID)) %>% transmute(smp_id = gsub("\\s", "", SMP_ID)) %>%
+    filter(!(grepl("[A-z]", smp_id))) %>% #No A-Z characters permitted. Upper and lower case.
+    filter(!(smp_id %in% smp_loc$smp_id)) %>%
+    {data.frame(st_coordinates(.), .$smp_id)} %>%
+    select(smp_id = 3, lon_wgs84 = 1, lat_wgs84 = 2)
+```
+

@@ -1,0 +1,12 @@
+name: sf_error_reprex
+title: sf_error_reprex
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 532
+bundleId: 3372
+url: https://pwdrstudio.phila.gov/content/4cc9c9ee-43fd-437a-baf1-789484f2775f/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
