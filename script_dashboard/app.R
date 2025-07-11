@@ -30,7 +30,16 @@ version = '1.2.6'
 #set db connection
 #using a pool connection so separate connnections are unified
 #gets environmental variables saved in local or pwdrstudio environment
-poolConn <- dbPool(odbc(), dsn = "mars14_datav2", uid = Sys.getenv("shiny_uid"), pwd = Sys.getenv("shiny_pwd"))
+poolConn <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "mars_prod",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
 
 #disconnect from db on stop 
 onStop(function(){

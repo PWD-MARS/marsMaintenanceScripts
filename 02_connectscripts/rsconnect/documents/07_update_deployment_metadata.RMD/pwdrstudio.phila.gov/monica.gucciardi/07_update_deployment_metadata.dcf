@@ -1,0 +1,12 @@
+name: 08_update_deployment_metadata
+title: 08_update_deployment_metadata
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 529
+bundleId: 3346
+url: https://pwdrstudio.phila.gov/content/cb0e9fbd-44d8-4bb7-aad4-d121a4c6ce7a/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

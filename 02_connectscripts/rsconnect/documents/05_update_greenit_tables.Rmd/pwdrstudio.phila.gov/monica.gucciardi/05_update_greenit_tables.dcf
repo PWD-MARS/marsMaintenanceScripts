@@ -1,0 +1,12 @@
+name: update_greenit_tables
+title: update_greenit_tables
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 526
+bundleId: 3338
+url: https://pwdrstudio.phila.gov/content/ab4f3dfa-928e-4389-884b-d7d94adb0437/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

@@ -1,0 +1,12 @@
+name: mars_maintenance_script_c02_-_rainfall_data
+title: MARS Maintenance Script C02 - Rainfall Data
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 484
+bundleId: 3383
+url: https://pwdrstudio.phila.gov/content/bbf7dd2f-0687-4cdc-8a2c-549eb02fbd30/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

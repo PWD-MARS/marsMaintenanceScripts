@@ -1,0 +1,12 @@
+name: script_dashboard
+title: script_dashboard
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 530
+bundleId: 3348
+url: https://pwdrstudio.phila.gov/content/a39630e1-5e38-46bd-bbab-aed10a86d442/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
