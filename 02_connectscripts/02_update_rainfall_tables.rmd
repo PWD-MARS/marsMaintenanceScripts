@@ -757,12 +757,12 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
 ```{r Final Section - Close DB connections and render this file, include = FALSE}
 
 ###Log: End
-logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+logMessage <- data.frame(date = as.Date(today()), hash = logCode,
                          milestone = NA,
                          exit_code = errorCode,
                          note = errorCodes$message[errorCode+1])
 
-dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_rainfall"), logMessage, append = TRUE, row.names=FALSE)
 
 ```
 
