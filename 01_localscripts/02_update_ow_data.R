@@ -100,12 +100,15 @@
           select(dtime = 1, level_ft = ncol(.)) %>% #dtime is the first column, level is the last
           mutate(dtime = ymd_hms(dtime, tz = "America/New_York"), level_ft = as.numeric(level_ft)) %>% #Data comes in as plain text from RODBC
           filter(dtime > accessdb_latestdates$dtime[i]) %>% #We still need to filter by > the latest date because Access will treat values with fractional seconds as > values without fractional seconds. When R recieves them, though, we get them without the fractional seconds, so from our perspective, we have a value that is = the latest date. This is very silly.
+          mutate(secondbump = (second(dtime) == 59)) %>% #Calculate whether the seconds place needs to be bumped +1 second
+          mutate(dtime = as.POSIXct(ifelse(secondbump, dtime + dseconds(1), dtime), tz = "America/New_York")) %>%
+          filter(dtime > accessdb_latestdates$dtime[i]) %>% #We still need to filter by > the latest date because Access will treat values with fractional seconds as > values without fractional seconds. When R recieves them, though, we get them without the fractional seconds, so from our perspective, we have a value that is = the latest date. This is very silly.
           arrange(dtime) %>% #Order by ascending datetime in case it's out of order in the DB
           mutate(ow_uid = accessdb_latestdates$ow_uid[i]) %>% #Attach OW UID to the data
           mutate(key = paste(ow_uid, dtime, sep = "_"), 
                  dupe = duplicated(key)) %>% #Sometimes there are duplicates in the Access DBs
           filter(dupe == FALSE) %>% #Remove the dupe rows
-          select(-key, -dupe) #Remove the key columns
+          select(-key, -dupe, -secondbump) #Remove the key columns
         
         newdata <- bind_rows(newdata, accessdb_newdata)
         odbcClose(accessdbCon)
@@ -270,14 +273,17 @@
         
         accessdb_newdata <- sqlQuery(accessdbCon, accessdb_query, as.is = TRUE) %>% 
           select(dtime = 1, depth_ft = ncol(.)) %>% #dtime is the first column, level is the last
-          mutate(dtime = ymd_hms(dtime), depth_ft = as.numeric(depth_ft)) %>% #Data comes in as plain text from RODBC
+          mutate(dtime = ymd_hms(dtime, tz = "EST"), depth_ft = as.numeric(depth_ft)) %>% #Data comes in as plain text from RODBC
+          mutate(secondbump = (second(dtime) == 59)) %>% #Calculate whether the seconds place needs to be bumped +1 second
+          mutate(dtime = as.POSIXct(ifelse(secondbump, dtime + dseconds(1), dtime), tz = "EST")) %>%
+          mutate(dtime = with_tz(dtime, tz = "America/New_York")) %>% #Convert to EDT
           filter(dtime > accessdb_latestdates$dtime[i]) %>% #Only take the new data
           arrange(dtime) %>% #Order by ascending datetime in case it's out of order in the DB
           mutate(ow_uid = accessdb_latestdates$ow_uid[i]) %>% #Attach OW UID to the data
           mutate(key = paste(ow_uid, dtime, sep = "_"), 
                  dupe = duplicated(key)) %>% #Sometimes there are duplicates in the Access DBs
           filter(dupe == FALSE) %>% #Remove the dupe rows
-          select(-key, -dupe) #Remove the key columns
+          select(-key, -dupe, -secondbump) #Remove the key columns
         
         newdata <- bind_rows(newdata, accessdb_newdata)
         odbcClose(accessdbCon)
@@ -506,7 +512,7 @@
       },
       error = function(e) {
         kill <<- TRUE
-        errorCode <<- 4
+        errorCode <<- 7
         errorCodes$message[errorCode+1] <<- e$message #Error object is a list
       }
     )

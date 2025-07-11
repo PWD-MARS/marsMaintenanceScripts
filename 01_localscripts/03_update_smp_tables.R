@@ -1,10 +1,12 @@
 #Load from local libs
+setwd("C:/marsMaintenanceScripts/01_localscripts")
 .libPaths("./lib")
 readRenviron("./.Renviron")
 
 # Section 0: Preamble ----
 #GIS stuff
 library(sf)
+library(s2)
 
 #Dplyr stuff
 library(magrittr)
@@ -113,7 +115,7 @@ dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_smp"),
     {data.frame(st_coordinates(.), .$smp_id)} %>%
     select(smp_id = 3, lon_wgs84 = 1, lat_wgs84 = 2)
   
-  bumpout <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWIBUMPOUT", quiet = TRUE)) %>% 
+  bumpout <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWIBUMPOUT", quiet = TRUE)) %>%
     st_set_crs(2272) %>% st_transform(4326) %>% #Convert from PA State Plane to WGS 1984
     st_centroid %>% filter(!is.na(SMP_ID)) %>% transmute(smp_id = gsub("\\s", "", SMP_ID)) %>%
     filter(!(grepl("[A-z]", smp_id))) %>% #No A-Z characters permitted. Upper and lower case.

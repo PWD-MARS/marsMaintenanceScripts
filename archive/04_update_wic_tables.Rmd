@@ -134,7 +134,7 @@ log_code <- digest(now()) #Unique ID for the log batches
 
 ```{r 1. Prepping the data for storage in MARS DB (renaming, deduplicating, type cast etc), include=FALSE, eval=!kill}
 
-  ###Log: Gathering Baro Data
+  ###Log: Gathering Cityworks Data
   logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                            milestone = 2,
                            exit_code = NA,
@@ -201,7 +201,7 @@ log_code <- digest(now()) #Unique ID for the log batches
 
 ```{r 2.1 Checking for new WIC complaints, new WIC comments and changed ones, include=FALSE, eval=!kill}
    
-  ###Log: Gathering Baro Data
+  ###Log: Identifying New/Changed WICs & Comments
   logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                            milestone = 3,
                            exit_code = NA,
@@ -317,8 +317,8 @@ tryCatch(
       changed_wic$workorder_id[i]
    )
 
-  # # Execute the update statement
-  #  success_upwo <- dbSendStatement(mars_con, wo_sql_string)
+  # Execute the update statement
+   success_upwo <- dbSendStatement(mars_con, wo_sql_string)
    
    tryCatch(
 
@@ -644,7 +644,7 @@ Number of Changed WIC Parcels: `r colorize(nrow(changed_wic_parcel), "red")`
 ## 4.1 Identify New WIC Polygons (Property & Footprint)
 
 ```{r 4.1 Identifying New WIC Polygons, include=FALSE, eval=!kill}
-###Log: Identifying new WIC polygons
+  ###Log: Identifying new WIC polygons
   logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                            milestone = 10,
                            exit_code = NA,
@@ -771,7 +771,7 @@ Number of New WIC Footprints Geometry: `r colorize(nrow(new_wic_footprint_sf), "
 ## 4.3 Identify New SMP Polygons
 
 ```{r 4.3 Identify New SMP polygons, include=FALSE, eval=!kill}
-    ###Log: Identifying new SMP polygons
+  ###Log: Identifying new SMP polygons
   logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                            milestone = 13,
                            exit_code = NA,
@@ -1082,7 +1082,7 @@ Number of Changed WICs within 100 ft of Systems: `r colorize(nrow(changed_wic_sy
 ## 5.5 Update Changed SMP-WIC in MARS DB {.hidden .unlisted}
 
 ```{r Update Changed SMP-WIC in MARS DB, eval= nrow(changed_wic_system) > 0 & !kill, include=FALSE}
-  ###Log: Gathering Baro Data
+  ###Log: Update Changed SMP-WIC in MARS DB
   logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                            milestone = 17,
                            exit_code = NA,
@@ -1181,7 +1181,7 @@ Number of Changed WICs within 100 ft of Systems: `r colorize(nrow(changed_wic_sy
 ## 5.7 Add New Unique Workorder ids to MARS DB for Status Record Keeping {.hidden .unlisted}
 
 ```{r 5.7 Add New  Unique Workorder ids to MARS DB for Status Record Keeping, eval= nrow(new_wic_wo_status) > 0 & !kill, include=FALSE}
-  ###Log: Writing new WIC Parcels to MARS
+  ###Log: Writing new unique Workorder IDs to MARS
   logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                            milestone = 19,
                            exit_code = NA,
