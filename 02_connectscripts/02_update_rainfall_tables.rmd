@@ -102,9 +102,9 @@ centraldb <- tryCatch({
     #Remove this before shipping, for the love of god
     # dbExecute(marsDBCon, "truncate table data.tbl_gage_rain restart identity;")
     # dbExecute(marsDBCon, "truncate table data.tbl_gage_event restart identity;")
-    # dbExecute(marsDBCon, "truncate table admin.tbl_radar_rawfile;")
-    # dbExecute(marsDBCon, "truncate table data.tbl_radar_rain restart identity;")
-    # dbExecute(marsDBCon, "truncate table data.tbl_radar_event restart identity;")
+     # dbExecute(marsDBCon, "truncate table admin.tbl_radar_rawfile;")
+     # dbExecute(marsDBCon, "truncate table data.tbl_radar_rain restart identity;")
+     # dbExecute(marsDBCon, "truncate table data.tbl_radar_event restart identity;")
 
   }
 
@@ -388,7 +388,6 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
 
 # Radar Rainfall Data
 ### There are `r nrow(new_rawfiles)` months worth of radar rainfall data to import.
-`r kable(new_rawfiles)`
 
 ```{r Section 4 - Reading radar data, include = FALSE, eval = all(nrow(new_rawfiles) > 0, !kill)}
 
@@ -409,7 +408,7 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
   #Unzip the files
   dir.create(unzipFolder, showWarnings = FALSE)
   for(i in 1:nrow(new_rawfiles)){
-  #for(i in 8:10){ #DEBUG: only process the tenth file (has a dst fallback, these introduce parsing corner cases to test)
+  #for(i in 8){ #DEBUG: only process the tenth file (has a dst fallback, these introduce parsing corner cases to test)
 
     ########Import the data file
 
@@ -560,7 +559,12 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
             #Write the data
             print(paste("Writing Radar Data File", basename(new_rawfiles$filepath[i])))
             dbExecute(marsDBCon, "insert into data.tbl_radar_rain (radar_uid, dtime, rainfall_in)
-              select radar_uid, dtime, rainfall_in where rainfall_in <> 0 from data.tbl_radar_escrow")
+              select radar_uid, dtime, rainfall_in 
+              from data.tbl_radar_escrow e
+                where rainfall_in <> 0 and
+                not exists (select 1 from data.tbl_radar_rain r where r.radar_uid = e.radar_uid and r.dtime = e.dtime)")
+                  #Dupe protection via composite key subquery from here
+                  #https://stackoverflow.com/questions/7147219/how-to-use-not-exists-with-composite-keys-in-sql-for-inserting-data-from-pojo
 
             #Write the rawfile to the rawfile table so we don't try to import it again
             dbWriteTable(marsDBCon, RPostgres::Id(schema = "admin", table = "tbl_radar_rawfile"), rawfile, append= TRUE, row.names = FALSE)
@@ -728,8 +732,9 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
     summary_newradarevents$outcome[i] <- radarevent_success
     
   }
-  kable(summary_newradarevents)
 ```
+
+`r kable(summary_newradarevents)`
 
 ```{r Break Point 4 - Radar Event Failure, echo = FALSE, include = TRUE, eval = kill}
 
@@ -748,3 +753,16 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
   knitr::knit_exit()
 
 ```
+
+```{r Final Section - Close DB connections and render this file, include = FALSE}
+
+###Log: End
+logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                         milestone = NA,
+                         exit_code = errorCode,
+                         note = errorCodes$message[errorCode+1])
+
+dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+
+```
+
