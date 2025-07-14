@@ -1004,6 +1004,11 @@
   wic_system[,"footprint_dist_ft"] <- round(wic_system[,"footprint_dist_ft"])
   wic_system[,"property_dist_ft"] <- round(wic_system[,"property_dist_ft"])
   
+  # automatically assign Non-issue to pre-con wics
+  wic_system <- wic_system %>%
+    mutate(wic_wo_status_lookup_uid = case_when(con_phase_lookup_uid == 3 ~ 2,
+                                                con_phase_lookup_uid != 3 ~ 3))
+  
 # Section 5.3 - Identify New/Changed WIC near Systems ----
   mars_wic_system <- dbGetQuery(mars_con, "SELECT * FROM fieldwork.tbl_wic_system")
   # updating tables with the system ids and workorder ids for status record keeping
