@@ -1,6 +1,7 @@
 # Section 1: Setting runtime parameters ----
 
   #Load from local libs
+  setwd("C:/marsMaintenanceScripts/01_localscripts")
   .libPaths("./lib")
   readRenviron("./.Renviron")
 
@@ -551,6 +552,6 @@
                              hash = log_code,
                              note = errorCodes$message[errorCode+1])
     
-    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
+    dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_ow"), logMessage, append = TRUE, row.names=FALSE)
     
   }  
