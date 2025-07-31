@@ -584,7 +584,7 @@
     
     dbWriteTable(mars_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
     
-    
+    successful_upparcels <- 0
     # update changed wic parcels
     for (i in 1:nrow(changed_wic_parcel)) {
       
