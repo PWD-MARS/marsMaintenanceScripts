@@ -35,8 +35,8 @@ options(stringsAsFactors=FALSE)
 dsn_infra_pub <- paste0("MSSQL:server=PWDGISSQL;",
                         "Driver=ODBC Driver 17 for SQL Server;",
                         "database=GIS_APPS;",
-                        "UID=gisread;",
-                        "PWD=gisread;")
+                        "UID=", Sys.getenv("gis_uid"), ";",
+                        "PWD=", Sys.getenv("gis_pwd"), ";")
 
 
 log_code <- digest(now()) #Unique ID for the log batches
