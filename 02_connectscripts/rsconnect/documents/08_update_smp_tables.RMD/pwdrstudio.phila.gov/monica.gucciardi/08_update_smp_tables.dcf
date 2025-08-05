@@ -1,0 +1,12 @@
+name: 08_update_smp_tables
+title: 08_update_smp_tables
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 538
+bundleId: 3476
+url: https://pwdrstudio.phila.gov/content/06eacb82-fd77-4716-8b30-13f52e15a60e/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
