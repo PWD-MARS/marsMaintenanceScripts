@@ -1,0 +1,12 @@
+name: 09_update_wic_tables
+title: 09_update_WIC_tables
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 539
+bundleId: 3484
+url: https://pwdrstudio.phila.gov/content/b5bdf345-aa2d-4f69-8eba-df7f0c964049/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
