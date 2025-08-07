@@ -147,7 +147,7 @@ server <- function(input, output) {
   print("Querying DB. This should only happen once.")
   
   script_table <- dbGetQuery(poolConn, "select * from log.viw_script_dashboard") %>%
-    transmute(Script = script, `Task Order` = as.numeric(task_order), `Date` = date, `Exit Code` = coalesce(status, 0), Note = note) %>%
+    transmute(Script = script, `Task Order` = as.numeric(task_order), Location = location,`Date` = date, `Exit Code` = coalesce(status, 0), Note = note) %>%
     arrange(`Task Order`) %>%
     select(-`Task Order`)
   script_names <- pull(script_table, Script) %>% unique
