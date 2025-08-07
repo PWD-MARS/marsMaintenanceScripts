@@ -249,6 +249,7 @@ all_public_deployment_phase <- srt_joined %>%
   anti_join(deployment_con_status, by = "deployment_uid")
 
 if(nrow(all_public_deployment_phase) == 0){
+  kill <- TRUE
   success <- TRUE #No new info
 }
 
@@ -293,7 +294,7 @@ if(!kill){
 
 
 
-```{r Break Point 2 - Bad Write, echo = FALSE, eval = kill}
+```{r Break Point 2 - Bad Write, echo = FALSE, eval = all(kill, !success)}
 
   knitr::asis_output("# Script Results: Error\n")
   knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
@@ -311,7 +312,7 @@ if(!kill){
 
 ```
 
-# Script Results: `r ifelse(kill, "FAILURE", ifelse(success, "SUCCESS", "FAILURE"))`
+# Script Results: `r ifelse(kill, ifelse(success, "SUCCESS", "FAILURE"), "FAILURE")`
 ## Exit Code: `r errorCode`
 ## Exit Message: `r errorCodes$message[errorCode+1]`
 
