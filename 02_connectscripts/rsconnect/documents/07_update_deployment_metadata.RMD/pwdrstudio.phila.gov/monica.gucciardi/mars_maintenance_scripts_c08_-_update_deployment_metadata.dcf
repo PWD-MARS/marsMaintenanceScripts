@@ -1,0 +1,12 @@
+name: mars_maintenance_scripts_c08_-_update_deployment_metadata
+title: MARS Maintenance Scripts C08 - Update Deployment Metadata
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 541
+bundleId: 3493
+url: https://pwdrstudio.phila.gov/content/c4f71ea3-585b-4f6f-962a-9c87c5becfc8/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

@@ -312,7 +312,7 @@ if(!kill){
 
 ```
 
-# Script Results: `r ifelse(kill, ifelse(success, "SUCCESS", "FAILURE"), "FAILURE")`
+# Script Results: `r ifelse(kill, ifelse(success, "SUCCESS", "FAILURE"), "SUCCESS")`
 ## Exit Code: `r errorCode`
 ## Exit Message: `r errorCodes$message[errorCode+1]`
 
