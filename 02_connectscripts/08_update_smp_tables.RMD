@@ -531,5 +531,5 @@ logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                          note = errorCodes$message[errorCode+1])
 
 dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_smp"), logMessage, append = TRUE, row.names=FALSE)
-S
+
 ```
