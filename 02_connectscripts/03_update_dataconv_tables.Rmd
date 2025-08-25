@@ -130,6 +130,7 @@ This script is attempting to update DataConv tables within the `external` schema
     qry_manhole <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswimanhole'
     qry_observationwell <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswiobservationwell'
     qry_structure <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id, SymbolGroup as symbol_group, StructureType as structure_type from gisad.gswistructure where COMPONENTID is not NULL'
+    qry_inspectionruns <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, PIPE_COMPONENTID as component_id, DIAMETER as diameter_in, PIPESHAPEPWD as pipe_shape, MATERIALPWD as material, SUBTYPE as subtype, SUBTYPEDESC as subtype_description from gisad.gswiinspectionruns where PIPE_COMPONENTID is not NULL'
 
 # Grab the tables
     basin <- dbGetQuery(dataconv, qry_basin) 
@@ -155,6 +156,7 @@ This script is attempting to update DataConv tables within the `external` schema
     manhole <- dbGetQuery(dataconv, qry_manhole)
     observationwell <- dbGetQuery(dataconv, qry_observationwell)
     structure <- dbGetQuery(dataconv, qry_structure)
+    inspectionruns <- dbGetQuery(dataconv, qry_inspectionruns)
 
 ```
     
@@ -321,6 +323,13 @@ This script is attempting to update DataConv tables within the `external` schema
         mutate(md5hash = digest(temp, algo = 'md5')) %>%
         mutate(facility_id = tolower(facility_id)) %>% #Match our DB's lower case IDs
         select(-temp)
+    
+    hash_inspectionruns <- inspectionruns %>%
+        unite("temp", remove = FALSE) %>%
+        rowwise() %>%
+        mutate(md5hash = digest(temp, algo = 'md5')) %>%
+        mutate(facility_id = tolower(facility_id)) %>% #Match our DB's lower case IDs
+        select(-temp)
 
 ```
 
@@ -349,6 +358,8 @@ This script is attempting to update DataConv tables within the `external` schema
     db_manhole <- dbGetQuery(mars, "select * from external.tbl_gswimanhole")
     db_observationwell <- dbGetQuery(mars, "select * from external.tbl_gswiobservationwell")
     db_structure <- dbGetQuery(mars, "select * from external.tbl_gswistructure")
+    db_inspectionruns <- dbGetQuery(mars, "select * from external.tbl_gswiinspectionruns")
+
 ```
 
 ```{r Section 4 - Identify differnces between tables, include=FALSE}
@@ -376,6 +387,8 @@ This script is attempting to update DataConv tables within the `external` schema
     anti_manhole <- anti_join(hash_manhole, db_manhole)
     anti_observationwell <- anti_join(hash_observationwell, db_observationwell)
     anti_structure <- anti_join(hash_structure, db_structure)
+    anti_inspectionruns <- anti_join(hash_inspectionruns, db_inspectionruns)
+
 
 #Filter to detect new items instead of edits
 #New assets will have new facility IDs
@@ -403,13 +416,14 @@ This script is attempting to update DataConv tables within the `external` schema
     new_manhole <- filter(anti_manhole, !(facility_id %in% db_manhole$facility_id))
     new_observationwell <- filter(anti_observationwell, !(facility_id %in% db_observationwell$facility_id))
     new_structure <- filter(anti_structure, !(facility_id %in% db_structure$facility_id))
+    new_inspectionruns <- filter(anti_inspectionruns, !(facility_id %in% db_structure$facility_id))
 
     ###Error Check - Are there any new assets?###
     ###If not, set skip flag for new assets, but keep running###
 
-    newAssets = FALSE #Set true if any of the above objects are
+    newAssets = FALSE #Set true if any of the above objects are nonzero length
 
-    if(any(nrow(new_basin) != 0, nrow(new_blueroof) != 0, nrow(new_bumpout) != 0, nrow(new_cistern) != 0, nrow(new_drainagewell) != 0, nrow(new_greenroof) != 0, nrow(new_permeablepavement) != 0, nrow(new_planter) != 0, nrow(new_raingarden) != 0, nrow(new_swale) != 0, nrow(new_tree) != 0, nrow(new_treetrench) != 0, nrow(new_trench) != 0, nrow(new_wetland) != 0, nrow(new_cleanout) != 0, nrow(new_controlstructure) != 0, nrow(new_conveyance) != 0, nrow(new_fitting) != 0, nrow(new_inlet) != 0, nrow(new_manhole) != 0, nrow(new_observationwell) != 0, nrow(new_structure) != 0))
+    if(any(nrow(new_basin) != 0, nrow(new_blueroof) != 0, nrow(new_bumpout) != 0, nrow(new_cistern) != 0, nrow(new_drainagewell) != 0, nrow(new_greenroof) != 0, nrow(new_permeablepavement) != 0, nrow(new_planter) != 0, nrow(new_raingarden) != 0, nrow(new_swale) != 0, nrow(new_tree) != 0, nrow(new_treetrench) != 0, nrow(new_trench) != 0, nrow(new_wetland) != 0, nrow(new_cleanout) != 0, nrow(new_controlstructure) != 0, nrow(new_conveyance) != 0, nrow(new_fitting) != 0, nrow(new_inlet) != 0, nrow(new_manhole) != 0, nrow(new_observationwell) != 0, nrow(new_structure) != 0, nrow(new_inspectionruns) != 0))
     {
       newAssets = TRUE
     }
@@ -528,6 +542,11 @@ knitr::asis_output(paste("### New assets to add to `external.tbl_gswistructure`:
 kable(head(new_structure))
 ```
 
+```{r Section We Are As One - external.tbl_gswiinspectionruns, echo = FALSE, eval = all(!kill, newAssets, nrow(new_inspectionruns) > 0)}
+knitr::asis_output(paste("### New assets to add to `external.tbl_gswiinspectionruns`: ",   nrow(new_inspectionruns)))
+kable(head(new_inspectionruns))
+```
+
 ```{r Section We Are As One - Write Everything, echo = FALSE, eval = all(!kill, newAssets)}
   ###Log: Start
   logMessage <- data.frame(date = as.Date(today()), hash = log_code,
@@ -565,6 +584,8 @@ if(newAssets){
       dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswimanhole"), new_manhole, append = TRUE)
       dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiobservationwell"), new_observationwell, append = TRUE)
       dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswistructure"), new_structure, append = TRUE)
+      dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiinspectionruns"), new_inspectionruns, append = TRUE)
+
     },
     error = function(e){
       kill <<- TRUE
@@ -577,7 +598,7 @@ if(newAssets){
     if(!kill){ #If the write succeeded
       new_footprints <- nrow(new_basin) + nrow(new_blueroof) + nrow(new_bumpout) + nrow(new_cistern) + nrow(new_drainagewell) + nrow(new_greenroof) + nrow(new_permeablepavement) + nrow(new_planter) + nrow(new_raingarden) + nrow(new_swale) + nrow(new_tree) + nrow(new_treetrench) + nrow(new_trench) + nrow(new_wetland)
 
-      new_components <- nrow(new_cleanout) + nrow(new_controlstructure) + nrow(new_conveyance) + nrow(new_fitting) + nrow(new_inlet) + nrow(new_manhole) + nrow(new_observationwell) + nrow(new_structure)
+      new_components <- nrow(new_cleanout) + nrow(new_controlstructure) + nrow(new_conveyance) + nrow(new_fitting) + nrow(new_inlet) + nrow(new_manhole) + nrow(new_observationwell) + nrow(new_structure) + nrow(new_inspectionruns)
       
       logMessage <- data.frame(date = as.Date(today()),
                            records = new_footprints + new_components,
@@ -691,9 +712,12 @@ if(newAssets){
     update_structure <- anti_join(anti_structure, new_structure) %>%
         left_join(select(db_structure, gswistructure_uid, facility_id)) 
     
-    newUpdates = FALSE #Set true if any of the above objects are
+    update_inspectionruns <- anti_join(anti_inspectionruns, new_inspectionruns) %>%
+        left_join(select(db_inspectionruns, gswiinspectionruns_uid, facility_id)) 
+    
+    newUpdates = FALSE #Set true if any of the above objects are nonzero length
 
-    if(any(nrow(update_basin) != 0, nrow(update_blueroof) != 0, nrow(update_bumpout) != 0, nrow(update_cistern) != 0, nrow(update_drainagewell) != 0, nrow(update_greenroof) != 0, nrow(update_permeablepavement) != 0, nrow(update_planter) != 0, nrow(update_raingarden) != 0, nrow(update_swale) != 0, nrow(update_tree) != 0, nrow(update_treetrench) != 0, nrow(update_trench) != 0, nrow(update_wetland) != 0, nrow(update_cleanout) != 0, nrow(update_controlstructure) != 0, nrow(update_conveyance) != 0, nrow(update_fitting) != 0, nrow(update_inlet) != 0, nrow(update_manhole) != 0, nrow(update_observationwell) != 0, nrow(update_structure) != 0))
+    if(any(nrow(update_basin) != 0, nrow(update_blueroof) != 0, nrow(update_bumpout) != 0, nrow(update_cistern) != 0, nrow(update_drainagewell) != 0, nrow(update_greenroof) != 0, nrow(update_permeablepavement) != 0, nrow(update_planter) != 0, nrow(update_raingarden) != 0, nrow(update_swale) != 0, nrow(update_tree) != 0, nrow(update_treetrench) != 0, nrow(update_trench) != 0, nrow(update_wetland) != 0, nrow(update_cleanout) != 0, nrow(update_controlstructure) != 0, nrow(update_conveyance) != 0, nrow(update_fitting) != 0, nrow(update_inlet) != 0, nrow(update_manhole) != 0, nrow(update_observationwell) != 0, nrow(update_structure) != 0, nrow(update_inspectionruns) !=0))
     {
       newUpdates = TRUE
     }
@@ -808,6 +832,11 @@ kable(head(update_observationwell))
 ```{r Section We Are As One - Updates to external.tbl_gswistructure, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_structure) > 0)}
 knitr::asis_output(paste("### Assets to update in `external.tbl_gswistructure`: ",   nrow(update_structure)))
 kable(head(update_structure))
+```
+
+```{r Section We Are As One - Updates to external.tbl_gswiinspectionruns, echo = FALSE, eval = all(!kill, newUpdates, nrow(update_inspectionruns) > 0)}
+knitr::asis_output(paste("### Assets to update in `external.tbl_gswiinspectionruns`: ",   nrow(update_inspectionruns)))
+kable(head(update_inspectionruns))
 ```
 
 ```{r Section We Are As One - Update Everything, echo = FALSE, eval = all(!kill, newUpdates)}
@@ -958,6 +987,12 @@ if(newUpdates){
       }
 
 
+      if(nrow(update_inspectionruns) > 0){
+          purgeQuery <- paste0("delete from external.tbl_gswiinspectionruns where gswiinspectionruns_uid in (", paste(update_inspectionruns$gswiinspectionruns_uid, collapse = ", "), ");")
+          dbExecute(mars, purgeQuery)
+          dbWriteTable(mars, RPostgres::Id(schema = "external", table = "tbl_gswiinspectionruns"), update_inspectionruns, append = TRUE)
+      }
+      
     },
     error = function(e){
       kill <<- TRUE
@@ -969,7 +1004,7 @@ if(newUpdates){
 
 #Write records
 if(!kill){ #If the write succeeded
-  updated_records <- nrow(update_basin) + nrow(update_blueroof) + nrow(update_bumpout) + nrow(update_cistern) + nrow(update_drainagewell) + nrow(update_greenroof) + nrow(update_permeablepavement) + nrow(update_planter) + nrow(update_raingarden) + nrow(update_swale) + nrow(update_tree) + nrow(update_treetrench) + nrow(update_trench) + nrow(update_wetland) + nrow(update_cleanout) + nrow(update_controlstructure) + nrow(update_conveyance) + nrow(update_fitting) + nrow(update_inlet) + nrow(update_manhole) + nrow(update_observationwell) + nrow(update_structure)
+  updated_records <- nrow(update_basin) + nrow(update_blueroof) + nrow(update_bumpout) + nrow(update_cistern) + nrow(update_drainagewell) + nrow(update_greenroof) + nrow(update_permeablepavement) + nrow(update_planter) + nrow(update_raingarden) + nrow(update_swale) + nrow(update_tree) + nrow(update_treetrench) + nrow(update_trench) + nrow(update_wetland) + nrow(update_cleanout) + nrow(update_controlstructure) + nrow(update_conveyance) + nrow(update_fitting) + nrow(update_inlet) + nrow(update_manhole) + nrow(update_observationwell) + nrow(update_structure) + nrow(update_inspectionruns)
   
   logMessage <- data.frame(date = as.Date(today()),
                            records = updated_records,
