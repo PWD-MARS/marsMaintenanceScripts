@@ -530,6 +530,10 @@
     }
   }
 
+  #Refresh matview for QA shiny app
+  dbGetQuery(marsDBCon, "refresh materialized view data.mat_level_data_day;")
+  
+  
 ## Break Point 6: Data Gap Write Error ----
   if(kill == TRUE){
     print("# Script Results: Error\n")
