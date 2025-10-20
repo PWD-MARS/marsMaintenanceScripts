@@ -254,7 +254,7 @@ updated_crosstab <- planreview_crosstab_hash %>%
       tryCatch(
   
         expr = {
-          dbWriteTable(mars_data, RPostgres::Id(schema = "external", table = "tbl_planreview_private_fixed"), new_smp_hashes, append= TRUE, row.names = FALSE)
+          dbWriteTable(mars_data, RPostgres::Id(schema = "external", table = "tbl_planreview_private"), new_smp_hashes, append= TRUE, row.names = FALSE)
           success <<- TRUE
           },
         error = function(e) {
