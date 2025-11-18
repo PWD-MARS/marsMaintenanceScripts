@@ -5,15 +5,16 @@ $pgrestore_exe = 'C:/Program Files/PostgreSQL/14/bin/pg_restore.exe'
 $psql_exe = 'C:/Program Files/PostgreSQL/14/bin/psql.exe'
 
 #Folder to host backups
-$folderpath = '//pwdoows/oows/Watershed Sciences/GSI Monitoring/07 Databases and Tracking Spreadsheets/18 MARS Database Back Up Files/PG 14/'
+$folderpath = $env:MARSBACKUPDIR
 
 #Date string to be used in dump filenames and archivetest restores
 $datestring = $(Get-Date -UFormat '%Y%m%dT%H%M')
 
 #Don't prompt for a password
-#Passwords can not be supplied to pg_dump/restore in shell commands. They are hosted in the PGPASSFILE, located at the path stored in the environment variable of the same name.
+  #Passwords can not be supplied to pg_dump/restore in shell commands. 
+  #They are hosted in the PGPASSFILE, located at the path stored in the environment variable of the same name.
+  #See the admin docs for more details
 $arg_pass = "--no-password"
-$env:PGPASSFILE = "C:\marsMaintenanceScripts\01_localscripts\.pgpass"
 
 ##########Log Parameters
 #Log hash
