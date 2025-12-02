@@ -3,6 +3,7 @@
 $pgdump_exe = 'C:/Program Files/PostgreSQL/14/bin/pg_dump.exe'
 $pgrestore_exe = 'C:/Program Files/PostgreSQL/14/bin/pg_restore.exe'
 $psql_exe = 'C:/Program Files/PostgreSQL/14/bin/psql.exe'
+$createdb_exe = 'C:/Program Files/PostgreSQL/14/bin/createdb.exe'
 
 #Folder to host backups
 $folderpath = $env:MARSBACKUPDIR
@@ -68,14 +69,33 @@ $arg_pass = "--no-password"
   $filepath = $folderpath + $filename
   $arg_file = '--file='+ $filepath
 
+###########pg_restore arguments
+ $testdbname = $filename
+ $arg_template = '-Ttemplate0'
+ $arg_testdb = '-d' + $filename
 
+#Backup the DB
 Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 1, NULL, 'Initiating DB Backup', '$loghash');"
 & $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 1, NULL, 'Initiating DB Backup', '$loghash');"
 
 Write-Host $pgdump_exe "$arg_file" $arg_host $arg_port $arg_user $arg_pass $arg_role $arg_format $arg_dbname $arg_compress
 & $pgdump_exe "$arg_file" $arg_host $arg_port $arg_user $arg_pass $arg_role $arg_format $arg_dbname $arg_compress
 
+Write-Host "The time is $time and the hash is $loghash"
+
+#Create the test db
+Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 2, NULL, 'Creating test DB', '$loghash');"
+& $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 2, NULL, 'Creating test DB', '$loghash');"
+
+Write-Host $createdb_exe $arg_host $arg_port $arg_user $arg_template $arg_testdb
+& $createdb_exe $arg_user $arg_host $arg_port $arg_template $testdbname
+
+#Restore the DB into the test db
+Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 3, NULL, 'Restoring test DB', '$loghash');"
+& $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 2, NULL, 'Restoring test DB', '$loghash');"
+
+Write-Host $pgrestore_exe $arg_host $arg_port $arg_user $arg_testdb "$filepath"
+& $pgrestore_exe $arg_host $arg_port $arg_user $arg_testdb "$filepath"
+
 Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 0, 1, 'Execution Successful', '$loghash');"
 & $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 0, 1, 'Execution Successful', '$loghash');"
-
-Write-Host "The time is $time and the hash is $loghash"
