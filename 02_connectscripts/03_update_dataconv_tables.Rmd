@@ -124,7 +124,7 @@ This script is attempting to update DataConv tables within the `external` schema
     #Component tables
     qry_cleanout <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswicleanout'
     qry_controlstructure <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswicontrolstructure'
-    qry_conveyance <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id,SUBTYPE as subtype from gisad.gswiconveyance where COMPONENTID is not NULL'
+    qry_conveyance <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id,SUBTYPE as subtype, COMMENTS as comments from gisad.gswiconveyance where COMPONENTID is not NULL'
     qry_fitting <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswifitting'
     qry_inlet <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id, PLUG_STATUS as plug_status from gisad.gswiinlet'
     qry_manhole <- 'select OBJECTID as object_id, LIFECYCLESTATUS as lifecycle_status, FACILITYID as facility_id, COMPONENTID as component_id from gisad.gswimanhole'

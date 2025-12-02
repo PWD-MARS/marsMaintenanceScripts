@@ -21,7 +21,6 @@ library(knitr)
 options(stringsAsFactors = FALSE)
 
 # ODBC Connection to CIPIT
-
 cipit <- dbConnect(odbc(),
     Driver = "SQL Server", 
     Server = "PWDCIPSQLR", 
@@ -29,6 +28,7 @@ cipit <- dbConnect(odbc(),
     uid = Sys.getenv("cipit_uid"),
     pwd= Sys.getenv("cipit_pwd"))
 
+# ODBC Connection to MARS
 mars <- dbPool(
     drv = RPostgres::Postgres(),
     host = "PWDMARSDBS1",
