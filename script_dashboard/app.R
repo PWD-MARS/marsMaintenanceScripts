@@ -169,19 +169,18 @@ server <- function(input, output) {
         columnDefs = list(list(className = 'dt-center', targets = c(2)))
       )
     ) %>% formatStyle(
-      3, #Exit Code column
+        columns = names(script_table),
+        color = 'white'
+    ) %>% formatStyle(
+      4, #Exit Code column
       target = 'row',
       backgroundColor = styleInterval(0, c(NA, '#CC7F50'))
-    )%>% formatStyle(
-      2, #Date column,
+    ) %>% formatStyle(
+      3, #Date column,
       target = 'row',
       backgroundColor = styleInterval(date_cutoff, c('#770000', NA)),
       color = styleInterval(date_cutoff, c('white', 'black'))
-    )%>%
-      formatStyle(
-        columns = names(script_table),
-        color = 'white'
-      )
+    )
   ) 
   output$writes <- renderDT(
     DT::datatable(
