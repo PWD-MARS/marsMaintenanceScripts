@@ -418,7 +418,7 @@
                              milestone = NA,
                              exit_code = errorCode,
                              hash = logCode,
-                             note = errorCodes$message[errorCode+1])
+                             note = message)
     
     dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_accessdb"), logMessage, append = TRUE, row.names=FALSE)
     
