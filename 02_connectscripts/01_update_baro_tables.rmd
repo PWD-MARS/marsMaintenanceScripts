@@ -316,7 +316,10 @@ for(i in 1:nrow(newfiles)){
   if(nrow(tempdata) == 0) {next} #if the file is empty, skip it
   tempdata <- tempdata[, 2:4]
   colnames(tempdata) <- c("dtime", "baro_psi", "temp_f")
-  tempdata$dtime <- mdy_hms(tempdata$dtime, tz = "America/New_York")
+  # Read dtime with EST time zone and change to America/New_York 
+  tempdata <- temp_data |>
+    mutate(dtime = mdy_hms(dtime, tz = "EST"),
+           dtime = with_tz(dtime, tz = "America/New_York"))
   tempdata$baro_rawfile_uid <- newfiles$baro_rawfile_uid[i]
   tempdata <- tempdata[complete.cases(tempdata[, 1:3]),] #Purge NA rows from the final data set
   
