@@ -90,6 +90,11 @@
     #Debug statement. Uncomment if running interactively.
     #print(paste("Accessing", accessdb_latestdates$filepath[i]))
     
+    
+    # if(accessdb_latestdates$ow_uid[i] %in% c(1049)){ #DST check
+    #   browser()
+    # }
+    
     tryCatch(
       expr = {
         accessdbCon <- odbcConnectAccess2007(accessdb_latestdates$filepath[i])
@@ -99,18 +104,17 @@
         
         accessdb_newdata <- sqlQuery(accessdbCon, accessdb_query, as.is = TRUE) %>%
           select(dtime = 1, level_ft = ncol(.)) %>% #dtime is the first column, level is the last
-          mutate(dtime = ymd_hms(dtime, tz = "America/New_York"), level_ft = as.numeric(level_ft)) %>% #Data comes in as plain text from RODBC
+          arrange(dtime) %>%
+          mutate(dtime = ymd_hms(dtime, tz = "EST"), level_ft = as.numeric(level_ft)) %>% #Data comes in as plain text from RODBC
           filter(dtime > accessdb_latestdates$dtime[i]) %>% #We still need to filter by > the latest date because Access will treat values with fractional seconds as > values without fractional seconds. When R recieves them, though, we get them without the fractional seconds, so from our perspective, we have a value that is = the latest date. This is very silly.
-          mutate(secondbump = (second(dtime) == 59)) %>% #Calculate whether the seconds place needs to be bumped +1 second
-          mutate(dtime = as.POSIXct(ifelse(secondbump, dtime + dseconds(1), dtime), tz = "America/New_York")) %>%
+          #mutate(secondbump = (second(dtime) == 59)) #%>% #Calculate whether the seconds place needs to be bumped +1 second
+          mutate(dtime = round_date(dtime, unit = 'minute')) %>%
+          #mutate(dtime = as.POSIXct(ifelse(secondbump, dtime + dseconds(1), dtime), tz = "America/New_York")) %>%
+          mutate(dtime = with_tz(dtime, tz = "America/New_York")) %>%
           filter(dtime > accessdb_latestdates$dtime[i]) %>% #We still need to filter by > the latest date because Access will treat values with fractional seconds as > values without fractional seconds. When R recieves them, though, we get them without the fractional seconds, so from our perspective, we have a value that is = the latest date. This is very silly.
           arrange(dtime) %>% #Order by ascending datetime in case it's out of order in the DB
-          mutate(ow_uid = accessdb_latestdates$ow_uid[i]) %>% #Attach OW UID to the data
-          mutate(key = paste(ow_uid, dtime, sep = "_"), 
-                 dupe = duplicated(key)) %>% #Sometimes there are duplicates in the Access DBs
-          filter(dupe == FALSE) %>% #Remove the dupe rows
-          select(-key, -dupe, -secondbump) #Remove the key columns
-        
+          mutate(ow_uid = accessdb_latestdates$ow_uid[i]) #Attach OW UID to the data
+
         newdata <- bind_rows(newdata, accessdb_newdata)
         odbcClose(accessdbCon)
       },
@@ -143,9 +147,9 @@
   
   #Some nulls may exist so we purge them
   newdata %<>% filter(complete.cases(newdata))
-  newdata$dtime <- newdata$dtime %>% 
-    round_date(unit = "minute") %>%
-    as.character  
+  # newdata$dtime <- newdata$dtime %>% 
+  #   round_date(unit = "minute") %>%
+  #   as.character  
   
   
   #Pull OW table for use in the report table
@@ -182,9 +186,12 @@
               data_points, 
               outcome)
   
+  
   #Write each well's worth of data to the database one at a time
   for(i in 1:nrow(owdata_results)){
     if(nrow(owdata_results) == 0){break} #If there are no new data sources, don't do anything
+    
+    browser()
     
     newdata_currentfile <- filter(newdata, ow_uid == owdata_results$ow_uid[i])
     

@@ -5,5 +5,7 @@
 .Ruserdata
 *.rproj
 /01_localscripts/lib/*
+/01_localscripts/tasks/*
+/01_localscripts/exports/*
 *.html
 *.pgpass

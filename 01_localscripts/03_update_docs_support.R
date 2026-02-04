@@ -9,6 +9,7 @@ library(tidyverse)
 #Database Stuff
 library(pool)
 library(RPostgres)
+library(digest)
 
 marsDBCon <- tryCatch({
   dbPool(
