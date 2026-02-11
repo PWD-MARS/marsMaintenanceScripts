@@ -150,7 +150,7 @@
   
   #Refresh materialized view so it has the newest cache of SMP IDs
   #If we don't do this, new IDs won't be found, and we will get an insertion error.
-  dbGetQuery(marsDBCon, "REFRESH MATERIALIZED VIEW external.mat_assets WITH DATA;")
+  dbExecute(marsDBCon, "REFRESH MATERIALIZED VIEW external.mat_assets WITH DATA;")
   
   ####Error check - did we find access DB files?
   if(length(publicaccessdbs) == 0 | length(privateaccessdbs) == 0)

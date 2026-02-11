@@ -83,7 +83,7 @@ if(!odbc::dbIsValid(marsDBCon))
 #Refresh materialized view so it has the newest cache of SMP IDs
 #If we don't do this, new IDs won't be found, and we will get an insertion error.
 if(!kill){
-  dbGetQuery(marsDBCon, "REFRESH MATERIALIZED VIEW external.mat_assets WITH DATA;")
+  dbExecute(marsDBCon, "REFRESH MATERIALIZED VIEW external.mat_assets WITH DATA;")
 }
 
 

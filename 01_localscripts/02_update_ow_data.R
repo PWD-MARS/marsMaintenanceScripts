@@ -191,7 +191,7 @@
   for(i in 1:nrow(owdata_results)){
     if(nrow(owdata_results) == 0){break} #If there are no new data sources, don't do anything
     
-    browser()
+    #browser()
     
     newdata_currentfile <- filter(newdata, ow_uid == owdata_results$ow_uid[i])
     
@@ -236,7 +236,7 @@
   }
   
   #Refresh matview for QA Shiny app
-  dbGetQuery(marsDBCon, "refresh materialized view data.mat_level_data_day;")
+  dbExecute(marsDBCon, "refresh materialized view data.mat_level_data_day;")
 
 ## Break Point 3: OW Data Write Error ----
   if(kill == TRUE){
@@ -415,7 +415,7 @@
   }
   
   #Refresh matview for QA Shiny app
-  dbGetQuery(marsDBCon, "refresh materialized view data.mat_gw_data_day;")
+  dbExecute(marsDBCon, "refresh materialized view data.mat_gw_data_day;")
 
 ## Break Point 5: GW Data Write Error ----
   if(kill == TRUE){
@@ -538,7 +538,7 @@
   }
 
   #Refresh matview for QA shiny app
-  dbGetQuery(marsDBCon, "refresh materialized view data.mat_level_data_day;")
+  dbExecute(marsDBCon, "refresh materialized view data.mat_level_data_day;")
   
   
 ## Break Point 6: Data Gap Write Error ----
