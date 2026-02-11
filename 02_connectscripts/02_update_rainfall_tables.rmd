@@ -155,8 +155,7 @@ centraldb <- tryCatch({
 hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>% 
   transmute(gage_uid = GaugeNo, 
             dtime = DateTime, #Comes in as America/New York time zone
-            rainfall_in = round(Rainfall, 4)) %>%
-  filter(!(gage_uid %in% c(36, 37))) #We don't track these
+            rainfall_in = round(Rainfall, 4))
   
   newgagedata <- hhrainfall_gage %>% 
     left_join(rainfall_gage, by = "gage_uid") %>% 
