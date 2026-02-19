@@ -284,7 +284,7 @@ hhrainfall_gage <- dbGetQuery(centraldb, "select * from pwdrg.tblModelRain") %>%
     summarize(eventdatastart = first(dtime),
       eventdataend = last(dtime),
       eventduration_hr = marsStormDuration_hr(dtime),
-      eventpeakintensity_inhr = marsStormPeakIntensity_inhr(dtime, rainfall_in),
+      eventpeakintensity_inhr = marsStormPeakIntensity_inhr(rainfall_in),
       eventavgintensity_inhr = marsStormAverageIntensity_inhr(dtime, rainfall_in),
       eventdepth_in = marsStormDepth_in(rainfall_in)) %>%
     select(-event_id)
