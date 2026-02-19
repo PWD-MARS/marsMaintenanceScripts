@@ -9,7 +9,10 @@ $createdb_exe = 'C:/Program Files/PostgreSQL/14/bin/createdb.exe'
 $folderpath = $env:MARSBACKUPDIR
 
 #Date string to be used in dump filenames and archivetest restores
-$datestring = $(Get-Date -UFormat '%Y%m%dT%H%M')
+$datestring = $(Get-Date).ToString('yyyyMMddThhmm')
+
+#Date string for yesterday to purge yesterday's test restore
+$yesterdaystring = $(Get-Date).AddDays(-1).ToString('yyyyMMddThhmm')
 
 #Don't prompt for a password
   #Passwords can not be supplied to pg_dump/restore in shell commands. 
@@ -63,16 +66,25 @@ $arg_pass = "--no-password"
   $extension = '.pgdump'
 
   #Dump's resultant filename
-  $filename = $datestring + '_' + $dbname + $extension
+  $fileprefix = $datestring + '_' + $dbname
+  $filename =  $fileprefix + $extension
+
+  #Yesterday's backup name (to delete it)
+  $yesterdayname = 'z_backup_' + $yesterdaystring + '_' + $dbname
 
   #Dump's full filepath (--file)
   $filepath = $folderpath + $filename
   $arg_file = '--file='+ $filepath
 
 ###########pg_restore arguments
- $testdbname = $filename
+ $testdbname = 'z_backup_' + $fileprefix
  $arg_template = '-Ttemplate0'
- $arg_testdb = '-d' + $filename
+ $arg_testdb = '-d' + $fileprefix
+
+#Purge yesterday's backup, if it exists
+#Must escape 
+Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c drop database if exists $yesterdayname;"
+& $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c drop database if exists $yesterdayname;"
 
 #Backup the DB
 Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 1, NULL, 'Initiating DB Backup', '$loghash');"
@@ -81,13 +93,11 @@ Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c ins
 Write-Host $pgdump_exe "$arg_file" $arg_host $arg_port $arg_user $arg_pass $arg_role $arg_format $arg_dbname $arg_compress
 & $pgdump_exe "$arg_file" $arg_host $arg_port $arg_user $arg_pass $arg_role $arg_format $arg_dbname $arg_compress
 
-Write-Host "The time is $time and the hash is $loghash"
-
 #Create the test db
 Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 2, NULL, 'Creating test DB', '$loghash');"
 & $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 2, NULL, 'Creating test DB', '$loghash');"
 
-Write-Host $createdb_exe $arg_host $arg_port $arg_user $arg_template $arg_testdb
+Write-Host $createdb_exe $arg_host $arg_port $arg_user $arg_template $testdbname
 & $createdb_exe $arg_user $arg_host $arg_port $arg_template $testdbname
 
 #Restore the DB into the test db
@@ -99,3 +109,4 @@ Write-Host $pgrestore_exe $arg_host $arg_port $arg_user $arg_testdb "$filepath"
 
 Write-Host $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 0, 1, 'Execution Successful', '$loghash');"
 & $psql_exe $arg_host $arg_port $arg_user $arg_pass $arg_dbname "-c insert into $scripttable (date, milestone, exit_code, note, hash) VALUES ('$date', 0, 1, 'Execution Successful', '$loghash');"
+
