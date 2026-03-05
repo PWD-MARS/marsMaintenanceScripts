@@ -9,10 +9,10 @@ $createdb_exe = 'C:/Program Files/PostgreSQL/14/bin/createdb.exe'
 $folderpath = $env:MARSBACKUPDIR
 
 #Date string to be used in dump filenames and archivetest restores
-$datestring = $(Get-Date).ToString('yyyyMMddThhmm')
+$datestring = $(Get-Date).ToString('yyyyMMdd')
 
 #Date string for yesterday to purge yesterday's test restore
-$yesterdaystring = $(Get-Date).AddDays(-1).ToString('yyyyMMddThhmm')
+$yesterdaystring = $(Get-Date).AddDays(-1).ToString('yyyyMMdd')
 
 #Don't prompt for a password
   #Passwords can not be supplied to pg_dump/restore in shell commands. 
