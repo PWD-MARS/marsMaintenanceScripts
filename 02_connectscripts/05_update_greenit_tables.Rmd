@@ -26,7 +26,7 @@ library(digest)
 #db connections 
 greenit <- dbConnect(odbc(),
                      Driver = "ODBC Driver 17 for SQL Server",  
-                     Server = "PWDSQLPLENVPROD", 
+                     Server = "PWDSQLPESPROD", 
                      Database = "GreenIT", 
                      uid = Sys.getenv("greenit_uid"), 
                      pwd = Sys.getenv("greenit_pwd"))
@@ -92,7 +92,7 @@ if(any(!odbc::dbIsValid(mars_data), !odbc::dbIsValid(greenit)))
   knitr::knit_exit()
 
 ```
-#### The goal of this script is to succesfully read smp, system and project data from the `GreenIT` database and write a copy of new and updated records to`mars_data`.
+#### The goal of this script is to succesfully read smp, system and project data from the `GreenIT` database and write a copy of new and updated records to`mars_prod`.
 
 ```{r Section 1: Query GreenIT, echo = FALSE}
 

@@ -1,0 +1,12 @@
+name: update_greenit_tables
+title: update_greenit_tables
+username: monica.gucciardi
+account: monica.gucciardi
+server: pwdrstudio.phila.gov
+hostUrl: https://pwdrstudio.phila.gov/__api__
+appId: 526
+bundleId: 3979
+url: https://pwdrstudio.phila.gov/mars-script-c05/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
