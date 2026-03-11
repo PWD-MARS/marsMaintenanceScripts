@@ -33,6 +33,7 @@ errorCodes <- data.frame(code = 0:4,
 
 kill = FALSE
 errorCode = 0
+success = FALSE
 
 log_code <- digest(now()) #Unique ID for the log batches
 
@@ -192,7 +193,7 @@ marsDBCon <- dbPool(
   #################################
   ####Error check - Any new files?
   #################################
-  if(nrow(foundfiles) == 0)
+  if(nrow(filetable) == 0)
   {
     # If there are no new relevant files, we can stop now
     kill = TRUE
@@ -212,7 +213,7 @@ marsDBCon <- dbPool(
 ```
 
 
-```{r Break Point 2 - No files found, echo = FALSE, eval = kill}
+```{r Break Point 2 - No files found, echo = FALSE, eval = all(kill, !success)}
 
 knitr::asis_output("# Script Results: Error\n")
 knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
@@ -274,7 +275,7 @@ if(!kill){ #If the write succeeded
 
 ```
 
-```{r Break Point 3 - Write Failure, echo = FALSE, eval = kill}
+```{r Break Point 3 - Write Failure, echo = FALSE, eval = all(kill, !success)}
 
 knitr::asis_output("# Script Results: Error\n")
 knitr::asis_output(paste("## Error Code:", errorCode, "\n"))

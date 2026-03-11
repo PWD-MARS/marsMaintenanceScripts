@@ -5,8 +5,8 @@ account: monica.gucciardi
 server: pwdrstudio.phila.gov
 hostUrl: https://pwdrstudio.phila.gov/__api__
 appId: 483
-bundleId: 3305
-url: https://pwdrstudio.phila.gov/content/6a84f02d-839f-4199-b2b2-647c26e16972/
+bundleId: 3989
+url: https://pwdrstudio.phila.gov/mars-script-c01/
 version: 1
 asMultiple: FALSE
 asStatic: FALSE
