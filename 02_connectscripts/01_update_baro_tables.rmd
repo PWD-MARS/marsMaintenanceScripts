@@ -317,7 +317,7 @@ for(i in 1:nrow(newfiles)){
   tempdata <- tempdata[, 2:4]
   colnames(tempdata) <- c("dtime", "baro_psi", "temp_f")
   # Read dtime with EST time zone and change to America/New_York 
-  tempdata <- temp_data |>
+  tempdata <- tempdata |>
     mutate(dtime = mdy_hms(dtime, tz = "EST"),
            dtime = with_tz(dtime, tz = "America/New_York"))
   tempdata$baro_rawfile_uid <- newfiles$baro_rawfile_uid[i]
