@@ -82,7 +82,7 @@ marsDBCon <- dbPool(
   #firstDate function reads a few lines of the file and finds a date at (or near) the top of the file
   firstDate <- function(datafile){
     dates <- sapply(datafile, FUN = function(x){
-      temp <- read.csv(x, skip = 2, nrows = 5)
+      temp <- read.csv(x, skip = 1, nrows = 5)
       temp <- temp[, 2:4]
       colnames(temp) <- c("dtime", "pres_psi", "temp_f")
       return(temp$dtime[1])
@@ -94,7 +94,7 @@ marsDBCon <- dbPool(
   #lastDate function reads a file and finds the last date of the file
   lastDate <- function(datafile){
     dates <- sapply(datafile, FUN = function(x){
-      temp <- read.csv(x, skip = 2)
+      temp <- read.csv(x, skip = 1)
       temp <- temp[, 2:4]
       temp <- temp[complete.cases(temp), ]
       colnames(temp) <- c("dtime", "pres_psi", "temp_f")
