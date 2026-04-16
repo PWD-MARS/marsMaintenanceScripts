@@ -146,8 +146,9 @@ if(any(!odbc::dbIsValid(mars_data), !odbc::dbIsValid(greenit)))
   long_cols <- odbc::odbcConnectionColumns(greenit, "vw_greenit_systembestdata") %>%
     dplyr::select(name, data_type, column_size) %>% 
     dplyr::filter(data_type == -9,
-                  column_size == 0) %>%
-    dplyr::arrange(column_size) %>%
+                  column_size == 0,
+                  name != "SMPs") %>% #Data type for a field we do not import was changed in April 2026
+    dplyr::arrange(column_size) %>%     #Exclude that field from the longcols filter because we won't find it.
     dplyr::pull(name)
   
   systembestdata <- dplyr::tbl(greenit, dplyr::sql(system_query)) %>%
