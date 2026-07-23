@@ -9,3 +9,4 @@
 /01_localscripts/exports/*
 *.html
 *.pgpass
+*.test
