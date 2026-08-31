@@ -191,8 +191,9 @@ This script is attempting to update the `admin.tbl_smp_loc`, `admin.tbl_smp_rada
     select(smp_id = 3, lon_wgs84 = 1, lat_wgs84 = 2)
   
   raingarden <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWIRAINGARDEN", quiet = TRUE)) %>% 
-    st_set_crs(2272) %>% st_transform(4326) %>% #Convert from PA State Plane to WGS 1984
-    st_centroid %>% filter(!is.na(SMP_ID)) %>% transmute(smp_id = gsub("\\s", "", SMP_ID)) %>%
+    st_set_crs(2272) %>% st_centroid %>%
+    st_transform(4326) %>% #Convert from PA State Plane to WGS 1984
+    filter(!is.na(SMP_ID)) %>% transmute(smp_id = gsub("\\s", "", SMP_ID)) %>%
     filter(!(grepl("[A-z]", smp_id))) %>% #No A-Z characters permitted. Upper and lower case.
     filter(!(smp_id %in% smp_loc$smp_id)) %>%
     {data.frame(st_coordinates(.), .$smp_id)} %>%
