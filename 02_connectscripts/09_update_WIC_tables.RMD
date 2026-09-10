@@ -53,7 +53,7 @@ mars_con <- dbConnect(RPostgres::Postgres(),
 
 cityworks_con <- dbConnect(odbc(),
                            Driver = "ODBC Driver 17 for SQL Server",
-                           Server = "PWDCWSQLP",
+                           Server = "pwdcwsqlprod",
                            Database = "PWD_Cityworks",
                            uid = Sys.getenv("cw_uid"),
                            pwd= Sys.getenv("cw_pwd"))
