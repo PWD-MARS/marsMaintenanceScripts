@@ -79,7 +79,7 @@ $arg_pass = "--no-password"
 ###########pg_restore arguments
  $testdbname = 'z_backup_' + $fileprefix
  $arg_template = '-Ttemplate0'
- $arg_testdb = '-d' + $fileprefix
+ $arg_testdb = '--dbname=' + $testdbname
 
 #Purge yesterday's backup, if it exists
 #Must escape 
