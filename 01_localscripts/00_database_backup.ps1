@@ -16,7 +16,7 @@ $arg_pass = "--no-password"
 
 ##########Retention parameters
 #Set to $true to log what WOULD be deleted without deleting anything
-$pruneDryRun = $false
+$pruneDryRun = $true
 #If a past quarter has no backup from its final day (e.g. a missed run),
 #$false = delete everything from that quarter (strict reading of the policy)
 #$true  = keep the latest backup available in that quarter instead
