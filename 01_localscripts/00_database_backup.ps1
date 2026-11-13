@@ -20,7 +20,7 @@ $pruneDryRun = $false
 #If a past quarter has no backup from its final day (e.g. a missed run),
 #$false = delete everything from that quarter (strict reading of the policy)
 #$true  = keep the latest backup available in that quarter instead
-$pruneFallbackToLatest = $false
+$pruneFallbackToLatest = $true
 
 ##########Log Parameters
 #Log hash (from https://gist.github.com/dalton-cole/4b9b77db108c554999eb)
