@@ -1,0 +1,196 @@
+---
+title: "test_baro"
+format: html
+editor: visual
+---
+```{r setup, include=FALSE}
+#Dplyr stuff
+library(magrittr)
+library(tidyverse)
+library(lubridate)
+
+#Database Stuff
+library(pool)
+
+#Other stuff
+library(knitr)
+library(openssl)
+library(digest)
+
+errorCodes <- data.frame(code = 0:4,
+  message = c("Execution successful.",
+              "Could not connect to Postgres DB. Is Postgres down?",
+              "No baro files found in site folders. Are we connected to Active Directory?",
+              NA, #Write error from TryCatch will be used
+              NA #Write error from TryCatch will be used
+               ), stringsAsFactors=FALSE)
+
+kill = FALSE
+errorCode = 0
+success = FALSE
+
+log_code <- digest(now()) #Unique ID for the log batches
+
+#Are we running locally or on RStudio Connect?
+  #We will check if a filepath that only exists on Connect exists.
+  #We will use this to determine the prefix for the filepaths to the H&H radar files
+locationCheck <- list.files("/media/mounts/gsi-monitoring/02 GSI Monitoring Sites")
+
+if(length(locationCheck) == 0){ 
+  #We are running locally (ie debugging/developing)
+  sitefolder <- "//pwdoows/oows/watershed sciences/gsi monitoring/02 gsi monitoring sites/"
+  otherfolder <- "/media/mounts/gsi-monitoring/02 gsi monitoring sites/" #For verifying filepaths in an agnostic way
+} else{
+  #We are running on Connect
+  sitefolder <- "/media/mounts/gsi-monitoring/02 gsi monitoring sites/"
+  otherfolder <- "//pwdoows/oows/watershed sciences/gsi monitoring/02 gsi monitoring sites/" #For verifying filepaths in an agnostic way
+}
+
+
+```
+
+```{r Section 0 - Preamble and database connections, include=FALSE}
+###Section 0.1: Check parameter validity
+
+###Section 0.2: Connect to the MARS database
+marsDBCon <- dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "liner",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)
+
+  #################################
+  ####Error check - Did we connect?
+  #################################
+  if(typeof(marsDBCon) == "list")
+  {
+    kill = TRUE
+    errorCode = 1
+  }
+
+
+###Section 0.3: Helper function to find the first date in a file
+  #firstDate function reads a few lines of the file and finds a date at (or near) the top of the file
+  firstDate <- function(datafile){
+    dates <- sapply(datafile, FUN = function(x){
+      temp <- read.csv(x, skip = 1, nrows = 5)
+      temp <- temp[, 2:4]
+      colnames(temp) <- c("dtime", "pres_psi", "temp_f")
+      return(temp$dtime[1])
+    })
+    names(dates) <- NULL
+    return(dates)
+  }
+  
+  #lastDate function reads a file and finds the last date of the file
+  lastDate <- function(datafile){
+    dates <- sapply(datafile, FUN = function(x){
+      temp <- read.csv(x, skip = 1)
+      temp <- temp[, 2:4]
+      temp <- temp[complete.cases(temp), ]
+      colnames(temp) <- c("dtime", "pres_psi", "temp_f")
+      return(temp$dtime[nrow(temp)])
+    })
+    names(dates) <- NULL
+    return(dates)
+  }
+	
+```
+
+```{r Break Point 1 - Bad Connection, echo = FALSE, eval = kill}
+
+  # knitr::asis_output("# Script Results: Error\n")
+  # knitr::asis_output(paste("## Error Code:", errorCode, "\n"))
+  # knitr::asis_output(paste("## Error Message: ", errorCodes$message[errorCode+1]))
+  # 
+  # knitr::knit_exit()
+
+```
+
+```{r Section 1 - Gathering baro data, include = TRUE, echo = FALSE}
+ 
+  ###Log: Gathering Baro Data
+  logMessage <- data.frame(date = as.Date(today()), hash = log_code,
+                           milestone = 2,
+                           exit_code = NA,
+                           note = "Searching for Baro Files")
+  # 
+  # dbWriteTable(marsDBCon, RPostgres::Id(schema = "log", table = "tbl_script_baro"), logMessage, append = TRUE, row.names=FALSE)
+
+  #Fetch all host folders for baro data
+  baro_rawfolders <- dbGetQuery(marsDBCon, "SELECT * FROM admin.tbl_baro_rawfolder") %>%
+    mutate(folderpath = paste0(sitefolder, folderpath))
+    
+
+  #Fetch all distinct baro_rawfile_uids from the baro table, to guard against files existing in baro_rawfile but not in baro
+  fileswithdata <- dbGetQuery(marsDBCon, "SELECT baro_rawfile_uid, filepath from admin.tbl_baro_rawfile where baro_rawfile_uid in (select distinct baro_rawfile_uid from data.tbl_baro)") %>%
+    mutate(filepath = str_replace_all(filepath, r"(\\)", "/")) %>%
+    mutate(filepath = str_replace(tolower(filepath), otherfolder, sitefolder))
+  
+  #Fetch all of the latest dates for every baro in the baro table
+  latestdates <- dbGetQuery(marsDBCon, "SELECT r.smp_id, max(b.dtime) as latestdate FROM data.tbl_baro b LEFT JOIN admin.tbl_baro_rawfile r ON b.baro_rawfile_uid = r.baro_rawfile_uid GROUP BY smp_id")
+  
+  #If there are no dates, fake it with a date of January 1st, 2001
+  latestdates <- left_join(baro_rawfolders, latestdates, by = "smp_id")
+  latestdates$latestdate[is.na(latestdates$latestdate)] <- ymd_hms("2001-01-01 00:00:00", tz = "America/New_York")
+
+  #Search for all CSV files that say "baro" within those folders
+  #Attach the smp_id from the associated raw folder to each path so we know which baro they belong to
+  foundfiles <- NULL
+  for(i in 1:nrow(baro_rawfolders)){
+    files <- list.files(baro_rawfolders$folderpath[i], pattern = "baro.*csv$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE) 
+
+    if(length(files) == 0){
+      break #If there is no baro data to be found, skip that folder
+    }
+    
+    tempfiles <- data.frame(filepath = tolower(files), smp_id = baro_rawfolders$smp_id[i]) %>%
+      filter(!grepl("SRT", filepath, ignore.case = TRUE)) #Skip files from SRTs
+    foundfiles <- rbind(foundfiles, tempfiles)
+  }
+  
+  #################################
+  ####Error check - Found files?
+  #################################
+  if(nrow(foundfiles) == 0)
+  {
+    # There will be baro files always. If we find none, something is wrong
+    kill = TRUE
+    errorCode = 2
+  }
+
+  #Compute a variety of things relevant to the database
+  #First, whether the file is already in the database
+  filetable <- mutate(foundfiles, in_db = (filepath %in% fileswithdata$filepath))  %>%
+
+    #filter to only those files not in the database
+    filter(in_db == FALSE) %>%
+
+    #Find the first date in the files
+    mutate(firstDate = mdy_hms(firstDate(filepath), tz = "America/New_York"),
+           lastDate = mdy_hms(lastDate(filepath), tz = "America/New_York")) %>%
+
+    #Filter to only the new stuff; new year, new "new stuff" 2019-01-01 changed to 2021-01-01 (change made 2023-01-17)
+    filter(firstDate >= ymd("2021-01-01", tz = "America/New_York")) %>%
+
+    #Join them to the data frame showing the latest date for each baro in the database
+    left_join(latestdates, by = "smp_id") %>%
+
+    #Filter to only the files whose data are newer than the data in the database
+    #This is necessary because some sites have multiple baros, and the database uses only one
+    #So there can be files not in the rawfile table whose data is not relevant to us
+    filter(firstDate > latestdate | lastDate > latestdate)
+
+  #################################
+  ####Error check - Any new files?
+  #################################
+  if(nrow(filetable) == 0)
+  {
+    # If there are no new relevant files, we can stop now
+    kill = TRUE
+    errorCode = 0 #No error - this is a successful outcome
+    success <- TRUE
+  }
