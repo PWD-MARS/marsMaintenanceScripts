@@ -50,6 +50,13 @@ mars_con <- dbConnect(RPostgres::Postgres(),
                       dbname = "mars_prod",
                       user = Sys.getenv("admin_uid"),
                       password = Sys.getenv("admin_pwd"))
+# for pulling building footprints from databridge directly- because of SSO authentication we are storing the layer in mars-prod currently
+#data_bridge <- dbConnect(RPostgres::Postgres(),
+#                      host = "databridge.phila.gov",
+#                      port = 5432,
+#                      dbname = "databridge",
+#                      user = Sys.getenv("databridge_user"),
+#                      password = Sys.getenv("databridge_pwd"))
 
 cityworks_con <- dbConnect(odbc(),
                            Driver = "ODBC Driver 17 for SQL Server",
@@ -65,26 +72,32 @@ gisdata_con <- dbConnect(odbc(),
                          uid = Sys.getenv("gis_uid"),
                          pwd= Sys.getenv("gis_pwd"))
 
+gis_dsn <- sprintf(
+  "MSSQL:server=PWDGISSQL;database=GISDATA;uid=%s;pwd=%s",
+  Sys.getenv("gis_uid"), Sys.getenv("gis_pwd")
+)
+
 gisapps_con <- paste0("MSSQL:server=PWDGISSQL;",
                       "Driver=ODBC Driver 17 for SQL Server;",
                       "database=GIS_APPS;",
                       "UID=", Sys.getenv("gis_uid"), ";",
                       "PWD=", Sys.getenv("gis_pwd"), ";")
 
+# PWD_PARCELS are pulled from GIS_APPS, Building footprings are now pulled from MARS_PROD
 #Are we running locally or on RStudio Connect?
   #We will check if a filepath that only exists on Connect exists.
   #We will use this to determine the prefix for the GIS Shapefiles
-locationCheck <- list.files("/media/mounts/gsi-monitoring")
+#locationCheck <- list.files("/media/mounts/gsi-monitoring")
 
-if(length(locationCheck) == 0){ 
+#if(length(locationCheck) == 0){ 
   #We are running locally (ie debugging/developing)
-  footprint_dsn <- "//pwdoows/oows/Watershed Sciences/GSI Monitoring/09 GIS Data/Building_Footprint_Shapefile"
-  parcel_dsn <- "//pwdoows/oows/Watershed Sciences/GSI Monitoring/09 GIS Data/PWD_PARCELS"
-} else{
+#  footprint_dsn <- "//pwdoows/oows/Watershed Sciences/GSI Monitoring/09 GIS Data/Building_Footprint_Shapefile"
+#  parcel_dsn <- "//pwdoows/oows/Watershed Sciences/GSI Monitoring/09 GIS Data/PWD_PARCELS"
+#} else{
   #We are running on Connect
-  footprint_dsn <- "/media/mounts/gsi-monitoring/09 GIS Data/Building_Footprint_Shapefile"
-  parcel_dsn <- "/media/mounts/gsi-monitoring/09 GIS Data/PWD_PARCELS"
-}
+#  footprint_dsn <- "/media/mounts/gsi-monitoring/09 GIS Data/Building_Footprint_Shapefile"
+#  parcel_dsn <- "/media/mounts/gsi-monitoring/09 GIS Data/PWD_PARCELS"
+#}
 
 
 errorCodes <- data.frame(code = 0:13,
@@ -469,9 +482,15 @@ logMessage <- data.frame(date = as.Date(today()), hash = log_code,
 
 dbWriteTable(mars_con, RPostgres::Id(schema = "log", table = "tbl_script_wic"), logMessage, append = TRUE, row.names=FALSE)
 
-# pull pwd parcels (a large shapefile on the server which st_read fails to scrape from gis db)
-pwd_parcels_sf <- st_read(dsn = parcel_dsn, layer = "PWD_PARCELS")%>%
-  select(gis_address = ADDRESS, gis_facility_id = FACILITYID)
+# pull pwd parcels 
+# pwd_parcels_sf <- st_read(dsn = parcel_dsn, layer = "PWD_PARCELS")%>%
+#  select(gis_address = ADDRESS, gis_facility_id = FACILITYID)
+
+pwd_parcels_sf <- st_read(dsn = gis_dsn, layer = "GISAD.PWD_PARCELS") %>%
+  st_set_crs(2272) %>%
+  select(gis_address = ADDRESS, gis_facility_id = FACILITYID) %>%
+  st_set_geometry("geometry")
+
 # non-spatial version
 pwd_parcels_df <- pwd_parcels_sf %>%
   st_set_geometry (NULL)
@@ -667,12 +686,16 @@ logMessage <- data.frame(date = as.Date(today()), hash = log_code,
                          note = "Identifying new WIC polygons")
 
 # pull footprint parcels    
-footprint_sf <- st_read(dsn = footprint_dsn, layer = "Building_Footprint") 
-footprint_sf <- footprint_sf %>%
-  select(address = ADDRESS)
+#footprint_sf <- st_read(dsn = footprint_dsn, layer = "Building_Footprint") 
+#footprint_sf <- footprint_sf %>%
+#  select(address = ADDRESS)
+
+footprint_sf <- st_read(dsn = mars_con, Id(schema = "external", table = "tbl_databridge_footprint_geom")) %>%
+  st_set_crs(2272) %>%
+  st_set_geometry("geometry")
 
 # pull MARS's spatial polygons
-mars_footprint_sf  <- st_read(dsn = mars_con, Id(schema="fieldwork", table = "tbl_wic_footprint_geom"))
+mars_footprint_sf  <- st_read(dsn = mars_con, Id(schema="fieldwork", table = "tbl_wic_footprint_geom")) 
 mars_propertyline_sf  <- st_read(dsn = mars_con, Id(schema="fieldwork", table = "tbl_wic_propertyline_geom"))
 mars_smp_sf  <- st_read(dsn = mars_con, Id(schema="fieldwork", table = "tbl_wic_smp_geom"))
 
