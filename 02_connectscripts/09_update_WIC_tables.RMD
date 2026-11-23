@@ -989,60 +989,45 @@ smp_milestones <- smpbdv %>%
   select (system_id, workorder_id, wic_address, date, property_dist_ft, footprint_dist_ft, construction_start_date, pc_ntp_date, construction_complete_date, contract_closed_date) %>%
   distinct()
 
-#setting the lookup_id's default in smp milestone to 4
-smp_milestones['con_phase_lookup_uid'] <- 4
-for(i in 1:nrow(smp_milestones)) {
-  if (!is.na(smp_milestones[i, "construction_start_date"]) & !is.na(smp_milestones[i, "construction_complete_date"]) ) {
-    if (smp_milestones[i, "date"] >= smp_milestones[i, "construction_start_date"] & smp_milestones[i, "date"] <= smp_milestones[i, "construction_complete_date"]  ) {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 1
-    } else if (smp_milestones[i, "date"] < smp_milestones[i, "construction_start_date"]) {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 3
-    } else {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 2
-    }
-  } else if (!is.na(smp_milestones[i, "pc_ntp_date"]) & !is.na(smp_milestones[i, "construction_complete_date"] )) {
-    if (smp_milestones[i, "date"] >= smp_milestones[i, "pc_ntp_date"] & smp_milestones[i, "date"] <= smp_milestones[i, "construction_complete_date"]  ) {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 1
-    } else if (smp_milestones[i, "date"] < smp_milestones[i, "pc_ntp_date"]) {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 3
-    } else {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 2
-    }
-    
-  } else if (!is.na(smp_milestones[i, "construction_start_date"]) & !is.na(smp_milestones[i, "contract_closed_date"])) {
-    if (smp_milestones[i, "date"] >= smp_milestones[i, "construction_start_date"] & smp_milestones[i, "date"] <= smp_milestones[i, "contract_closed_date"]  ) {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 1
-    } else if (smp_milestones[i, "date"] < smp_milestones[i, "construction_start_date"]) {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 3
-    } else {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 2
-    }
-  } else if (!is.na(smp_milestones[i, "pc_ntp_date"]) & !is.na(smp_milestones[i, "contract_closed_date"])) {
-    if (smp_milestones[i, "date"] >= smp_milestones[i, "pc_ntp_date"] & smp_milestones[i, "date"] <= smp_milestones[i, "contract_closed_date"]  ) {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 1
-    } else if (smp_milestones[i, "date"] < smp_milestones[i, "pc_ntp_date"]) {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 3
-    } else {
-      smp_milestones[i, "con_phase_lookup_uid"] <- 2
-    }
-    
-  } else { 
-    smp_milestones[i, "con_phase_lookup_uid"] <- 4
-  }
-}
+smp_milestones <- smpbdv %>%
+  inner_join(cipit, by = "worknumber") %>%
+  inner_join(system_wic_df, by = "system_id") %>%
+  inner_join(wic_parcels, by = c("wic_address" = "address")) %>%
+  inner_join(cw_workorders, by = "workorder_id") %>%
+  select(system_id, workorder_id, wic_address, date, property_dist_ft, footprint_dist_ft,
+         construction_start_date, pc_ntp_date, construction_complete_date, contract_closed_date) %>%
+  distinct() %>%
+  mutate(across(c(construction_start_date, pc_ntp_date,
+                  construction_complete_date, contract_closed_date), as.Date)) %>%
+  mutate(
+    # same priority order as the original if/else chain
+    phase_start = case_when(
+      !is.na(construction_start_date) & !is.na(construction_complete_date) ~ construction_start_date,
+      !is.na(pc_ntp_date)             & !is.na(construction_complete_date) ~ pc_ntp_date,
+      !is.na(construction_start_date) & !is.na(contract_closed_date)       ~ construction_start_date,
+      !is.na(pc_ntp_date)             & !is.na(contract_closed_date)       ~ pc_ntp_date,
+      TRUE ~ as.Date(NA)),
+    phase_end = case_when(
+      !is.na(construction_start_date) & !is.na(construction_complete_date) ~ construction_complete_date,
+      !is.na(pc_ntp_date)             & !is.na(construction_complete_date) ~ construction_complete_date,
+      !is.na(construction_start_date) & !is.na(contract_closed_date)       ~ contract_closed_date,
+      !is.na(pc_ntp_date)             & !is.na(contract_closed_date)       ~ contract_closed_date,
+      TRUE ~ as.Date(NA)),
+    con_phase_lookup_uid = case_when(
+      is.na(phase_start) | is.na(phase_end) ~ 4,
+      date >= phase_start & date <= phase_end ~ 1,
+      date < phase_start ~ 3,
+      TRUE ~ 2)
+  )
 
-# prep the final table for writing in DB
 wic_system <- smp_milestones %>%
-  select(system_id, workorder_id, wic_address, con_phase_lookup_uid, footprint_dist_ft, property_dist_ft) %>%
-  distinct()
-
-wic_system[,"footprint_dist_ft"] <- round(wic_system[,"footprint_dist_ft"])
-wic_system[,"property_dist_ft"] <- round(wic_system[,"property_dist_ft"])
-
-# autmatically assign Non-issue to pre-con wics
-wic_system <- wic_system %>%
-  mutate(wic_wo_status_lookup_uid = case_when(con_phase_lookup_uid == 3 ~ 2,
-                                              con_phase_lookup_uid != 3 ~ 3))
+  select(system_id, workorder_id, wic_address, con_phase_lookup_uid,
+         footprint_dist_ft, property_dist_ft) %>%
+  distinct() %>%
+  mutate(footprint_dist_ft = round(footprint_dist_ft),
+         property_dist_ft  = round(property_dist_ft),
+         wic_wo_status_lookup_uid = case_when(con_phase_lookup_uid == 3 ~ 2,
+                                              TRUE ~ 3))
 
 
 
